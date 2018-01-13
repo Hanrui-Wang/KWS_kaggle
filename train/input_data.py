@@ -289,6 +289,17 @@ class AudioProcessor(object):
         self.word_to_index[word] = UNKNOWN_WORD_INDEX
     self.word_to_index[SILENCE_LABEL] = SILENCE_INDEX
 
+  
+  def prepare_LB_test(self, LB_test_set_path):
+    fid_r = open('LB_test_filename.txt')
+    LB_test_filename = fid_r.read().split('\n')
+    fid_r.close()
+
+    self.data_index['LB_test'] = []
+    for wav_name in LB_test_filename:
+      self.data_index['LB_test'].append({'label': 'bird', 'file': LB_test_set_path+wav_name}) # the label is useless actually
+
+
   def prepare_background_data(self):
     """Searches a folder for background noise audio, and loads it into memory.
 

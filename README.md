@@ -12,3 +12,7 @@ Kaggle TensorFlow Speech Recognition Challenge
 + https://www.kaggle.com/c/tensorflow-speech-recognition-challenge/discussion/47079
 + https://www.kaggle.com/c/tensorflow-speech-recognition-challenge/discussion/46945
 + https://www.kaggle.com/c/tensorflow-speech-recognition-challenge/discussion/47194
+
+
+## Data augmentation
++ https://www.kaggle.com/CVxTz/audio-data-augmentation
