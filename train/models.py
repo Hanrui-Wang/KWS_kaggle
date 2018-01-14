@@ -269,7 +269,7 @@ def create_resnet(fingerprint_input, model_settings, is_training):
   def _ConvBn2d(x, out_channels, kernel_size=3):
     x = tf.layers.conv2d(x, filters=out_channels, kernel_size=kernel_size,
                          padding='SAME', kernel_initializer=initializer)
-    x = tf.layers.batch_normalization(x)
+    x = tf.layers.batch_normalization(x, training=is_training)
     return x
 
   def _SeScale(x, reduction=16):
