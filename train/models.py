@@ -477,7 +477,7 @@ def create_multilayer_gru(fingerprint_input, model_settings, is_training):
 
   cell = tf.nn.rnn_cell.MultiRNNCell([
     tf.nn.rnn_cell.GRUCell(
-      num_units=1024
+      num_units=512
     )
     for _ in range(2)
   ])
@@ -488,6 +488,12 @@ def create_multilayer_gru(fingerprint_input, model_settings, is_training):
   )
 
   hidden = tf.concat(final_state, axis=1)
+
+  hidden = tf.layers.dense(
+    inputs=hidden,
+    units=1024,
+    kernel_initializer=initializer
+  )
 
   final_fc = tf.layers.dense(
     inputs=hidden,
