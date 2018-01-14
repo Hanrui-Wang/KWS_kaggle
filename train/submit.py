@@ -128,7 +128,7 @@ def main(_):
     batch_size = min(FLAGS.LB_test_batch_size, set_size - i)
     for j in range(0, batch_size):
       fid_w.write("%s\n" % prd[prediction[j]])
-      fid_s.write("%s\n" % ' '.join(scores[j]))
+      fid_s.write("%s\n" % ' '.join(map(str, scores[j])))
       # print(prediction[j])
   fid_w.close()
   
