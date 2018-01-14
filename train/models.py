@@ -103,6 +103,8 @@ def create_model(fingerprint_input, model_settings, model_architecture,
     return create_conv_model(fingerprint_input, model_settings, is_training)
   elif model_architecture == 'resnet':
     return create_resnet(fingerprint_input, model_settings, is_training)
+  elif model_architecture == 'big-resnet':
+    return create_big_resnet(fingerprint_input, model_settings, is_training)
   elif model_architecture == 'multilayer_lstm':
     return create_multilayer_lstm(fingerprint_input, model_settings,
                                   is_training)
@@ -324,6 +326,101 @@ def create_resnet(fingerprint_input, model_settings, is_training):
   hidden = tf.layers.max_pooling2d(hidden, pool_size=2, strides=2)
   hidden = tf.layers.flatten(hidden)
   hidden = tf.layers.dense(hidden, units=256,
+                           kernel_initializer=initializer)
+  hidden = tf.nn.relu(hidden)
+
+  hidden = tf.layers.dropout(hidden, rate=0.2, training=is_training)
+  final_fc = tf.layers.dense(hidden, units=label_count,
+                             kernel_initializer=initializer)
+  return final_fc
+
+def create_big_resnet(fingerprint_input, model_settings, is_training):
+  input_frequency_size = model_settings['dct_coefficient_count']  # 40
+  input_time_size = model_settings['spectrogram_length']  # 98
+  label_count = model_settings['label_count']  # 12
+
+  fingerprint_4d = tf.reshape(fingerprint_input,
+                              [-1, input_time_size, input_frequency_size, 1])
+
+  initializer = tf.truncated_normal_initializer(stddev=0.01)
+
+  hidden = fingerprint_4d
+
+  def _ConvBn2d(x, out_channels, kernel_size=3):
+    x = tf.layers.conv2d(x, filters=out_channels, kernel_size=kernel_size,
+                         padding='SAME', kernel_initializer=initializer)
+    x = tf.layers.batch_normalization(x, training=is_training)
+    return x
+
+  def _SeScale(x, reduction=16):
+    channel = x.shape[-1]
+    x = tf.layers.conv2d(x, filters=reduction, kernel_size=1, padding='SAME',
+                         kernel_initializer=initializer)
+    x = tf.nn.relu(x)
+    x = tf.layers.conv2d(x, filters=channel, kernel_size=1, padding='SAME',
+                         kernel_initializer=initializer)
+    x = tf.nn.sigmoid(x)
+    return x
+
+  def _ResBlock(x, out_channels, kernel_size=3):
+    z = _ConvBn2d(x, out_channels=out_channels, kernel_size=kernel_size)
+    z = tf.nn.relu(z)
+    z = _ConvBn2d(z, out_channels=out_channels, kernel_size=kernel_size)
+    z = _SeScale(z) * z + x
+    z = tf.nn.relu(z)
+    return z
+
+  hidden = _ConvBn2d(hidden, out_channels=16, kernel_size=5)
+  hidden = tf.nn.relu(hidden)
+  hidden = _ResBlock(hidden, out_channels=16, kernel_size=5)
+  hidden = tf.layers.max_pooling2d(hidden, pool_size=2, strides=2)
+
+  hidden = tf.layers.dropout(hidden, rate=0.1, training=is_training)
+  hidden = _ConvBn2d(hidden, out_channels=32, kernel_size=5)
+  hidden = tf.nn.relu(hidden)
+  hidden = _ResBlock(hidden, out_channels=32, kernel_size=5)
+  hidden = _ResBlock(hidden, out_channels=32, kernel_size=5)
+  hidden = tf.layers.max_pooling2d(hidden, pool_size=2, strides=2)
+
+  hidden = tf.layers.dropout(hidden, rate=0.2, training=is_training)
+  hidden = _ConvBn2d(hidden, out_channels=64, kernel_size=5)
+  hidden = tf.nn.relu(hidden)
+  hidden = _ResBlock(hidden, out_channels=64, kernel_size=5)
+  hidden = _ResBlock(hidden, out_channels=64, kernel_size=5)
+  hidden = tf.layers.max_pooling2d(hidden, pool_size=2, strides=2)
+
+  hidden = tf.layers.dropout(hidden, rate=0.2, training=is_training)
+  hidden = _ConvBn2d(hidden, out_channels=128, kernel_size=5)
+  hidden = tf.nn.relu(hidden)
+  hidden = _ResBlock(hidden, out_channels=128, kernel_size=5)
+  hidden = _ResBlock(hidden, out_channels=128, kernel_size=5)
+  hidden = tf.layers.max_pooling2d(hidden, pool_size=2, strides=2)
+
+  hidden = tf.layers.dropout(hidden, rate=0.2, training=is_training)
+  hidden = _ConvBn2d(hidden, out_channels=256, kernel_size=5)
+  hidden = tf.nn.relu(hidden)
+  hidden = _ResBlock(hidden, out_channels=256, kernel_size=5)
+  hidden = _ResBlock(hidden, out_channels=256, kernel_size=5)
+
+  hidden = tf.layers.dropout(hidden, rate=0.2, training=is_training)
+  hidden = _ConvBn2d(hidden, out_channels=256, kernel_size=5)
+  hidden = tf.nn.relu(hidden)
+  hidden = _ResBlock(hidden, out_channels=256, kernel_size=5)
+  hidden = _ResBlock(hidden, out_channels=256, kernel_size=5)
+  hidden = tf.layers.max_pooling2d(hidden, pool_size=2, strides=2)
+
+  hidden = tf.layers.dropout(hidden, rate=0.2, training=is_training)
+  hidden = _ConvBn2d(hidden, out_channels=256, kernel_size=5)
+  hidden = tf.nn.relu(hidden)
+  hidden = _ResBlock(hidden, out_channels=256, kernel_size=5)
+  hidden = _ResBlock(hidden, out_channels=256, kernel_size=5)
+
+  hidden = tf.layers.dropout(hidden, rate=0.2, training=is_training)
+  hidden = _ConvBn2d(hidden, out_channels=512, kernel_size=5)
+  hidden = tf.nn.relu(hidden)
+  hidden = tf.layers.max_pooling2d(hidden, pool_size=2, strides=2)
+  hidden = tf.layers.flatten(hidden)
+  hidden = tf.layers.dense(hidden, units=512,
                            kernel_initializer=initializer)
   hidden = tf.nn.relu(hidden)
 
