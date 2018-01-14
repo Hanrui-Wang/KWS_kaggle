@@ -290,18 +290,21 @@ def create_resnet(fingerprint_input, model_settings, is_training):
   
   hidden = fingerprint_4d
   
-  for i in range(2):
+  for i in range(4):
     pre_hidden = hidden
     hidden = tf.layers.conv2d(inputs=hidden, filters=64,
-      kernel_size=(3, 3), strides=(1, 1), padding='SAME', 
+      kernel_size=(8, 8), strides=(1, 1), padding='SAME', 
       kernel_initializer=initializer)
     hidden = tf.layers.conv2d(inputs=hidden, filters=64,
-      kernel_size=(3, 3), strides=(1, 1), padding='SAME', 
+      kernel_size=(10, 10), strides=(1, 1), padding='SAME', 
       kernel_initializer=initializer)
     if is_training:
       hidden = tf.nn.dropout(hidden, keep_prob=dropout_prob)
     hidden = tf.nn.relu(hidden)
     hidden += pre_hidden
+
+  hidden = tf.layers.max_pooling2d(hidden, pool_size=[2, 2], 
+    strides=[2, 2], padding='SAME')
   
   hidden_before_fc = tf.layers.flatten(hidden)
 
