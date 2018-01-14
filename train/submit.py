@@ -134,7 +134,7 @@ def main(_):
   
   # write submission csv file
   fid_filename = open('LB_test_filename.txt', 'r')
-  fid_prediction = open('prediction' + FLAGS.model_architecture + '.txt', 'r')
+  fid_prediction = open('prediction-' + FLAGS.model_architecture + '.txt', 'r')
   
   filename = fid_filename.read().split('\n')
   prediction = fid_prediction.read().split('\n')
