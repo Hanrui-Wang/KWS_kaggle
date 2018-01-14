@@ -27,7 +27,7 @@ def main(_):
   model_settings = models.prepare_model_settings(
     len(input_data.prepare_words_list(FLAGS.wanted_words.split(','))),
     FLAGS.sample_rate, FLAGS.clip_duration_ms, FLAGS.window_size_ms,
-    FLAGS.window_stride_ms, FLAGS.dct_coefficient_count)
+    FLAGS.window_stride_ms, FLAGS.dct_coefficient_count, 0)
   audio_processor = input_data.AudioProcessor(
     FLAGS.data_url, FLAGS.data_dir, FLAGS.silence_percentage,
     FLAGS.unknown_percentage,
