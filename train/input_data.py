@@ -19,6 +19,8 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+from data_augment import *
+
 import hashlib
 import math
 import os.path
@@ -375,14 +377,31 @@ class AudioProcessor(object):
         mode='CONSTANT')
     sliced_foreground = tf.slice(padded_foreground,
                                  self.time_shift_offset_placeholder_,
-                                 [desired_samples, -1])
+                                 [desired_samples, -1], name='sliced_foreground')
+    expand_foreground = tf.expand_dims(sliced_foreground, 0, name='expand_foreground')
+    
+    self.resize_shape_placeholder_ = tf.placeholder(tf.int32)
+    
+    resize_foreground = tf.image.resize_images(expand_foreground, [1,self.resize_shape_placeholder_])
+    squeeze_fore = tf.squeeze(resize_foreground, [0], name = 'squeeze_fore')
+
+    y = tf.constant(16000)
+    self.tmp0_ = tf.placeholder(tf.int32)
+    self.tmp1_ = tf.placeholder(tf.int32)
+
+    resize_foreground3 = tf.cond(tf.less(self.resize_shape_placeholder_, y), 
+      lambda: tf.pad(squeeze_fore, [[0,self.tmp0_],[0,0]],  mode='CONSTANT', name='resize_foreground3_pad'), 
+      lambda: tf.slice(squeeze_fore, [0,0], [self.tmp1_,1], name='resize_foreground3_slice'))
+    # exit()
+
     # Mix in background noise.
     self.background_data_placeholder_ = tf.placeholder(tf.float32,
                                                        [desired_samples, 1])
     self.background_volume_placeholder_ = tf.placeholder(tf.float32, [])
     background_mul = tf.multiply(self.background_data_placeholder_,
                                  self.background_volume_placeholder_)
-    background_add = tf.add(background_mul, sliced_foreground)
+    # background_add = tf.add(background_mul, sliced_foreground)
+    background_add = tf.add(background_mul, resize_foreground3)
     background_clamp = tf.clip_by_value(background_add, -1.0, 1.0)
     # Run the spectrogram and MFCC ops to get a 2D 'fingerprint' of the audio.
     spectrogram = contrib_audio.audio_spectrogram(
@@ -452,7 +471,7 @@ class AudioProcessor(object):
         sample_index = np.random.randint(len(candidates))
       sample = candidates[sample_index]
       # If we're time shifting, set up the offset for this sample.
-      if time_shift > 0:
+      if time_shift > 0 and (mode == 'training'):
         time_shift_amount = np.random.randint(-time_shift, time_shift)
       else:
         time_shift_amount = 0
@@ -491,7 +510,15 @@ class AudioProcessor(object):
       else:
         input_dict[self.foreground_volume_placeholder_] = 1
       # Run the graph to produce the output audio.
+      
+      resize_shape = int((16000*(1 - model_settings['stretch'] + 2 * model_settings['stretch'] * np.random.rand())) if mode == 'training' else 16000)
+      # resize_shape = int(16000)
+      input_dict[self.tmp0_] = int(((16000-resize_shape) if (resize_shape < 16000) else 0))
+      input_dict[self.tmp1_] = int((1 if (resize_shape < 16000) else 16000))
+      input_dict[self.resize_shape_placeholder_] = resize_shape
+      # print(resize_shape)
       data[i - offset, :] = sess.run(self.mfcc_, feed_dict=input_dict).flatten()
+
       label_index = self.word_to_index[sample['label']]
       labels[i - offset] = label_index
     return data, labels
