@@ -106,6 +106,9 @@ def create_model(fingerprint_input, model_settings, model_architecture,
   elif model_architecture == 'multilayer_lstm':
     return create_multilayer_lstm(fingerprint_input, model_settings,
                                   is_training)
+  elif model_architecture == 'multilayer_gru':
+    return create_multilayer_gru(fingerprint_input, model_settings,
+                                 is_training)
   else:
     raise Exception('model_architecture argument "' + model_architecture +
                     '" not recognized, should be one of "single_fc", "conv",'
@@ -356,6 +359,38 @@ def create_multilayer_lstm(fingerprint_input, model_settings, is_training):
   hidden0 = tf.concat(final_state[0], axis=1)
   hidden1 = tf.concat(final_state[1], axis=1)
   hidden = tf.concat((hidden0, hidden1), axis=1)
+
+  final_fc = tf.layers.dense(
+    inputs=hidden,
+    units=label_count,
+    kernel_initializer=initializer
+  )
+  return final_fc
+
+
+def create_multilayer_gru(fingerprint_input, model_settings, is_training):
+  input_frequency_size = model_settings['dct_coefficient_count']
+  input_time_size = model_settings['spectrogram_length']
+  label_count = model_settings['label_count']
+
+  fingerprint_3d = tf.reshape(fingerprint_input,
+                              [-1, input_time_size, input_frequency_size])
+
+  initializer = tf.truncated_normal_initializer(stddev=0.01)
+
+  cell = tf.nn.rnn_cell.MultiRNNCell([
+    tf.nn.rnn_cell.GRUCell(
+      num_units=1024
+    )
+    for _ in range(2)
+  ])
+  _, final_state = tf.nn.dynamic_rnn(
+    inputs=fingerprint_3d,
+    dtype=tf.float32,
+    cell=cell
+  )
+
+  hidden = tf.concat(final_state, axis=1)
 
   final_fc = tf.layers.dense(
     inputs=hidden,

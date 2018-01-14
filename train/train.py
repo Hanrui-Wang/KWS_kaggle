@@ -154,8 +154,9 @@ def main(_):
     # train_step = tf.train.GradientDescentOptimizer(
     #     learning_rate_input).minimize(cross_entropy_mean)
     loss = cross_entropy_mean + tf.losses.get_regularization_loss()
+    update_extra_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
     train_step = tf.train.AdamOptimizer(
-        learning_rate = learning_rate_input).minimize(cross_entropy_mean)
+        learning_rate = learning_rate_input).minimize(loss)
 
   predicted_indices = tf.argmax(logits, 1)
   correct_prediction = tf.equal(predicted_indices, ground_truth_input)
@@ -213,8 +214,8 @@ def main(_):
     # Run the graph with this batch of training data.
     train_summary, train_accuracy, cross_entropy_value, _, _ = sess.run(
         [
-            merged_summaries, evaluation_step, cross_entropy_mean, train_step,
-            increment_global_step
+          merged_summaries, evaluation_step, cross_entropy_mean, train_step,
+          update_extra_ops, increment_global_step
         ],
         feed_dict={
           fingerprint_input: train_fingerprints,
