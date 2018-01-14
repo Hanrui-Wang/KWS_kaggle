@@ -50,14 +50,14 @@ def prepare_model_settings(label_count, sample_rate, clip_duration_ms,
     spectrogram_length = 1 + int(length_minus_window / window_stride_samples)
   fingerprint_size = dct_coefficient_count * spectrogram_length
   return {
-      'desired_samples': desired_samples,
-      'window_size_samples': window_size_samples,
-      'window_stride_samples': window_stride_samples,
-      'spectrogram_length': spectrogram_length,
-      'dct_coefficient_count': dct_coefficient_count,
-      'fingerprint_size': fingerprint_size,
-      'label_count': label_count,
-      'sample_rate': sample_rate,
+    'desired_samples': desired_samples,
+    'window_size_samples': window_size_samples,
+    'window_stride_samples': window_stride_samples,
+    'spectrogram_length': spectrogram_length,
+    'dct_coefficient_count': dct_coefficient_count,
+    'fingerprint_size': fingerprint_size,
+    'label_count': label_count,
+    'sample_rate': sample_rate,
   }
 
 
@@ -100,6 +100,11 @@ def create_model(fingerprint_input, model_settings, model_architecture,
                                   is_training)
   elif model_architecture == 'conv':
     return create_conv_model(fingerprint_input, model_settings, is_training)
+  elif model_architecture == 'resnet':
+    return create_resnet(fingerprint_input, model_settings, is_training)
+  elif model_architecture == 'multilayer_lstm':
+    return create_multilayer_lstm(fingerprint_input, model_settings,
+                                  is_training)
   elif model_architecture == 'low_latency_conv':
     return create_low_latency_conv_model(fingerprint_input, model_settings,
                                          is_training)
@@ -108,8 +113,9 @@ def create_model(fingerprint_input, model_settings, model_architecture,
                                          is_training, runtime_settings)
   else:
     raise Exception('model_architecture argument "' + model_architecture +
-                    '" not recognized, should be one of "single_fc", "conv",' +
-                    ' "low_latency_conv, or "low_latency_svdf"')
+                    '" not recognized, should be one of "single_fc", "conv",'
+                    ' "low_latency_conv, "low_latency_svdf", "multilayer_lstm"'
+                    ' or "resnet"')
 
 
 def load_variables_from_checkpoint(sess, start_checkpoint):
@@ -153,7 +159,7 @@ def create_single_fc_model(fingerprint_input, model_settings, is_training):
   fingerprint_size = model_settings['fingerprint_size']
   label_count = model_settings['label_count']
   weights = tf.Variable(
-      tf.truncated_normal([fingerprint_size, label_count], stddev=0.001))
+    tf.truncated_normal([fingerprint_size, label_count], stddev=0.001))
   bias = tf.Variable(tf.zeros([label_count]))
   logits = tf.matmul(fingerprint_input, weights) + bias
   if is_training:
@@ -220,9 +226,9 @@ def create_conv_model(fingerprint_input, model_settings, is_training):
   first_filter_height = 20
   first_filter_count = 64
   first_weights = tf.Variable(
-      tf.truncated_normal(
-          [first_filter_height, first_filter_width, 1, first_filter_count],
-          stddev=0.01))
+    tf.truncated_normal(
+      [first_filter_height, first_filter_width, 1, first_filter_count],
+      stddev=0.01))
   first_bias = tf.Variable(tf.zeros([first_filter_count]))
   first_conv = tf.nn.conv2d(fingerprint_4d, first_weights, [1, 1, 1, 1],
                             'SAME') + first_bias
@@ -236,12 +242,12 @@ def create_conv_model(fingerprint_input, model_settings, is_training):
   second_filter_height = 10
   second_filter_count = 64
   second_weights = tf.Variable(
-      tf.truncated_normal(
-          [
-              second_filter_height, second_filter_width, first_filter_count,
-              second_filter_count
-          ],
-          stddev=0.01))
+    tf.truncated_normal(
+      [
+        second_filter_height, second_filter_width, first_filter_count,
+        second_filter_count
+      ],
+      stddev=0.01))
   second_bias = tf.Variable(tf.zeros([second_filter_count]))
   second_conv = tf.nn.conv2d(max_pool, second_weights, [1, 1, 1, 1],
                              'SAME') + second_bias
@@ -254,16 +260,102 @@ def create_conv_model(fingerprint_input, model_settings, is_training):
   second_conv_output_width = second_conv_shape[2]
   second_conv_output_height = second_conv_shape[1]
   second_conv_element_count = int(
-      second_conv_output_width * second_conv_output_height *
-      second_filter_count)
+    second_conv_output_width * second_conv_output_height *
+    second_filter_count)
   flattened_second_conv = tf.reshape(second_dropout,
                                      [-1, second_conv_element_count])
   label_count = model_settings['label_count']
   final_fc_weights = tf.Variable(
-      tf.truncated_normal(
-          [second_conv_element_count, label_count], stddev=0.01))
+    tf.truncated_normal(
+      [second_conv_element_count, label_count], stddev=0.01))
   final_fc_bias = tf.Variable(tf.zeros([label_count]))
   final_fc = tf.matmul(flattened_second_conv, final_fc_weights) + final_fc_bias
+  if is_training:
+    return final_fc, dropout_prob
+  else:
+    return final_fc
+
+
+def create_resnet(fingerprint_input, model_settings, is_training):
+  if is_training:
+    dropout_prob = tf.placeholder(tf.float32, name='dropout_prob')
+  input_frequency_size = model_settings['dct_coefficient_count'] # 40
+  input_time_size = model_settings['spectrogram_length']         # 98
+  label_count = model_settings['label_count']                    # 12
+  
+  fingerprint_4d = tf.reshape(fingerprint_input,
+                              [-1, input_time_size, input_frequency_size, 1])
+  
+  initializer = tf.truncated_normal_initializer(stddev=0.01)
+  
+  hidden = fingerprint_4d
+  
+  for i in range(2):
+    pre_hidden = hidden
+    hidden = tf.layers.conv2d(inputs=hidden, filters=64,
+      kernel_size=(3, 3), strides=(1, 1), padding='SAME', 
+      kernel_initializer=initializer)
+    hidden = tf.layers.conv2d(inputs=hidden, filters=64,
+      kernel_size=(3, 3), strides=(1, 1), padding='SAME', 
+      kernel_initializer=initializer)
+    if is_training:
+      hidden = tf.nn.dropout(hidden, keep_prob=dropout_prob)
+    hidden = tf.nn.relu(hidden)
+    hidden += pre_hidden
+  
+  hidden_before_fc = tf.layers.flatten(hidden)
+
+  hidden_before_fc = tf.layers.dense(
+    inputs=hidden_before_fc, units=512, activation=tf.nn.relu,
+    kernel_initializer=initializer)
+  
+  final_fc = tf.layers.dense(
+    inputs=hidden_before_fc,
+    units=label_count,
+    kernel_initializer=initializer
+  )
+  
+  if is_training:
+    return final_fc, dropout_prob
+  else:
+    return final_fc
+  
+  
+def create_multilayer_lstm(fingerprint_input, model_settings, is_training):
+  if is_training:
+    dropout_prob = tf.placeholder(tf.float32, name='dropout_prob')
+  input_frequency_size = model_settings['dct_coefficient_count']
+  input_time_size = model_settings['spectrogram_length']
+  label_count = model_settings['label_count']
+
+  fingerprint_3d = tf.reshape(fingerprint_input,
+                              [-1, input_time_size, input_frequency_size])
+  
+  initializer = tf.truncated_normal_initializer(stddev=0.01)
+  
+  cell = tf.nn.rnn_cell.MultiRNNCell([
+    tf.nn.rnn_cell.LSTMCell(
+      num_units=1024,
+      initializer=initializer
+    )
+    for _ in range(2)
+  ])
+  _, final_state = tf.nn.dynamic_rnn(
+    inputs=fingerprint_3d,
+    dtype=tf.float32,
+    cell=cell
+  )
+
+  hidden0 = tf.concat(final_state[0], axis=1)
+  hidden1 = tf.concat(final_state[1], axis=1)
+  hidden = tf.concat((hidden0, hidden1), axis=1)
+  
+  final_fc = tf.layers.dense(
+    inputs=hidden,
+    units=label_count,
+    kernel_initializer=initializer
+  )
+  
   if is_training:
     return final_fc, dropout_prob
   else:
@@ -328,12 +420,12 @@ def create_low_latency_conv_model(fingerprint_input, model_settings,
   first_filter_stride_x = 1
   first_filter_stride_y = 1
   first_weights = tf.Variable(
-      tf.truncated_normal(
-          [first_filter_height, first_filter_width, 1, first_filter_count],
-          stddev=0.01))
+    tf.truncated_normal(
+      [first_filter_height, first_filter_width, 1, first_filter_count],
+      stddev=0.01))
   first_bias = tf.Variable(tf.zeros([first_filter_count]))
   first_conv = tf.nn.conv2d(fingerprint_4d, first_weights, [
-      1, first_filter_stride_y, first_filter_stride_x, 1
+    1, first_filter_stride_y, first_filter_stride_x, 1
   ], 'VALID') + first_bias
   first_relu = tf.nn.relu(first_conv)
   if is_training:
@@ -341,19 +433,19 @@ def create_low_latency_conv_model(fingerprint_input, model_settings,
   else:
     first_dropout = first_relu
   first_conv_output_width = math.floor(
-      (input_frequency_size - first_filter_width + first_filter_stride_x) /
-      first_filter_stride_x)
+    (input_frequency_size - first_filter_width + first_filter_stride_x) /
+    first_filter_stride_x)
   first_conv_output_height = math.floor(
-      (input_time_size - first_filter_height + first_filter_stride_y) /
-      first_filter_stride_y)
+    (input_time_size - first_filter_height + first_filter_stride_y) /
+    first_filter_stride_y)
   first_conv_element_count = int(
-      first_conv_output_width * first_conv_output_height * first_filter_count)
+    first_conv_output_width * first_conv_output_height * first_filter_count)
   flattened_first_conv = tf.reshape(first_dropout,
                                     [-1, first_conv_element_count])
   first_fc_output_channels = 128
   first_fc_weights = tf.Variable(
-      tf.truncated_normal(
-          [first_conv_element_count, first_fc_output_channels], stddev=0.01))
+    tf.truncated_normal(
+      [first_conv_element_count, first_fc_output_channels], stddev=0.01))
   first_fc_bias = tf.Variable(tf.zeros([first_fc_output_channels]))
   first_fc = tf.matmul(flattened_first_conv, first_fc_weights) + first_fc_bias
   if is_training:
@@ -362,8 +454,8 @@ def create_low_latency_conv_model(fingerprint_input, model_settings,
     second_fc_input = first_fc
   second_fc_output_channels = 128
   second_fc_weights = tf.Variable(
-      tf.truncated_normal(
-          [first_fc_output_channels, second_fc_output_channels], stddev=0.01))
+    tf.truncated_normal(
+      [first_fc_output_channels, second_fc_output_channels], stddev=0.01))
   second_fc_bias = tf.Variable(tf.zeros([second_fc_output_channels]))
   second_fc = tf.matmul(second_fc_input, second_fc_weights) + second_fc_bias
   if is_training:
@@ -372,8 +464,8 @@ def create_low_latency_conv_model(fingerprint_input, model_settings,
     final_fc_input = second_fc
   label_count = model_settings['label_count']
   final_fc_weights = tf.Variable(
-      tf.truncated_normal(
-          [second_fc_output_channels, label_count], stddev=0.01))
+    tf.truncated_normal(
+      [second_fc_output_channels, label_count], stddev=0.01))
   final_fc_bias = tf.Variable(tf.zeros([label_count]))
   final_fc = tf.matmul(final_fc_input, final_fc_weights) + final_fc_bias
   if is_training:
@@ -439,10 +531,10 @@ def create_low_latency_svdf_model(fingerprint_input, model_settings,
   """
   if is_training:
     dropout_prob = tf.placeholder(tf.float32, name='dropout_prob')
-
+  
   input_frequency_size = model_settings['dct_coefficient_count']
   input_time_size = model_settings['spectrogram_length']
-
+  
   # Validation.
   input_shape = fingerprint_input.get_shape()
   if len(input_shape) != 2:
@@ -454,7 +546,7 @@ def create_low_latency_svdf_model(fingerprint_input, model_settings,
     raise ValueError('Inputs feature dimension %d must be a multiple of '
                      'frame size %d', fingerprint_input.shape[-1].value,
                      input_frequency_size)
-
+  
   # Set number of units (i.e. nodes) and rank.
   rank = 2
   num_units = 1280
@@ -474,28 +566,28 @@ def create_low_latency_svdf_model(fingerprint_input, model_settings,
     window_stride_ms = int(model_settings['window_stride_samples'] * 1000 /
                            model_settings['sample_rate'])
     num_new_frames = tf.cond(
-        tf.equal(tf.count_nonzero(memory), 0),
-        lambda: input_time_size,
-        lambda: int(runtime_settings['clip_stride_ms'] / window_stride_ms))
+      tf.equal(tf.count_nonzero(memory), 0),
+      lambda: input_time_size,
+      lambda: int(runtime_settings['clip_stride_ms'] / window_stride_ms))
   new_fingerprint_input = fingerprint_input[
-      :, -num_new_frames*input_frequency_size:]
+                          :, -num_new_frames * input_frequency_size:]
   # Expand to add input channels dimension.
   new_fingerprint_input = tf.expand_dims(new_fingerprint_input, 2)
-
+  
   # Create the frequency filters.
   weights_frequency = tf.Variable(
-      tf.truncated_normal([input_frequency_size, num_filters], stddev=0.01))
+    tf.truncated_normal([input_frequency_size, num_filters], stddev=0.01))
   # Expand to add input channels dimensions.
   # weights_frequency: [input_frequency_size, 1, num_filters]
   weights_frequency = tf.expand_dims(weights_frequency, 1)
   # Convolve the 1D feature filters sliding over the time dimension.
   # activations_time: [batch, num_new_frames, num_filters]
   activations_time = tf.nn.conv1d(
-      new_fingerprint_input, weights_frequency, input_frequency_size, 'VALID')
+    new_fingerprint_input, weights_frequency, input_frequency_size, 'VALID')
   # Rearrange such that we can perform the batched matmul.
   # activations_time: [num_filters, batch, num_new_frames]
   activations_time = tf.transpose(activations_time, perm=[2, 0, 1])
-
+  
   # Runtime memory optimization.
   if not is_training:
     # We need to drop the activations corresponding to the oldest frames, and
@@ -504,10 +596,10 @@ def create_low_latency_svdf_model(fingerprint_input, model_settings,
     new_memory = tf.concat([new_memory, activations_time], 2)
     tf.assign(memory, new_memory)
     activations_time = new_memory
-
+  
   # Create the time filters.
   weights_time = tf.Variable(
-      tf.truncated_normal([num_filters, input_time_size], stddev=0.01))
+    tf.truncated_normal([num_filters, input_time_size], stddev=0.01))
   # Apply the time filter on the outputs of the feature filters.
   # weights_time: [num_filters, input_time_size, 1]
   # outputs: [num_filters, batch, 1]
@@ -522,22 +614,22 @@ def create_low_latency_svdf_model(fingerprint_input, model_settings,
   units_output = tf.reduce_sum(outputs, axis=1)
   # Transpose to shape [batch, num_units]
   units_output = tf.transpose(units_output)
-
+  
   # Appy bias.
   bias = tf.Variable(tf.zeros([num_units]))
   first_bias = tf.nn.bias_add(units_output, bias)
-
+  
   # Relu.
   first_relu = tf.nn.relu(first_bias)
-
+  
   if is_training:
     first_dropout = tf.nn.dropout(first_relu, dropout_prob)
   else:
     first_dropout = first_relu
-
+  
   first_fc_output_channels = 256
   first_fc_weights = tf.Variable(
-      tf.truncated_normal([num_units, first_fc_output_channels], stddev=0.01))
+    tf.truncated_normal([num_units, first_fc_output_channels], stddev=0.01))
   first_fc_bias = tf.Variable(tf.zeros([first_fc_output_channels]))
   first_fc = tf.matmul(first_dropout, first_fc_weights) + first_fc_bias
   if is_training:
@@ -546,8 +638,8 @@ def create_low_latency_svdf_model(fingerprint_input, model_settings,
     second_fc_input = first_fc
   second_fc_output_channels = 256
   second_fc_weights = tf.Variable(
-      tf.truncated_normal(
-          [first_fc_output_channels, second_fc_output_channels], stddev=0.01))
+    tf.truncated_normal(
+      [first_fc_output_channels, second_fc_output_channels], stddev=0.01))
   second_fc_bias = tf.Variable(tf.zeros([second_fc_output_channels]))
   second_fc = tf.matmul(second_fc_input, second_fc_weights) + second_fc_bias
   if is_training:
@@ -556,8 +648,8 @@ def create_low_latency_svdf_model(fingerprint_input, model_settings,
     final_fc_input = second_fc
   label_count = model_settings['label_count']
   final_fc_weights = tf.Variable(
-      tf.truncated_normal(
-          [second_fc_output_channels, label_count], stddev=0.01))
+    tf.truncated_normal(
+      [second_fc_output_channels, label_count], stddev=0.01))
   final_fc_bias = tf.Variable(tf.zeros([label_count]))
   final_fc = tf.matmul(final_fc_input, final_fc_weights) + final_fc_bias
   if is_training:
