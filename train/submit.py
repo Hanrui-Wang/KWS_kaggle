@@ -53,12 +53,13 @@ def main(_):
   
   fingerprint_input = tf.placeholder(
     tf.float32, [None, fingerprint_size], name='fingerprint_input')
+  is_training = tf.placeholder(tf.bool)
   
-  logits, dropout_prob = models.create_model(
+  logits = models.create_model(
     fingerprint_input,
     model_settings,
     FLAGS.model_architecture,
-    is_training=True)
+    is_training)
   
   # Define loss and optimizer
   ground_truth_input = tf.placeholder(
@@ -109,29 +110,31 @@ def main(_):
   set_size = audio_processor.set_size('LB_test')
   # set_size = 10000
   tf.logging.info('LB_test_set_size=%d', set_size)
-  fid_w = open('prediction.txt', 'w')
+  fid_w = open('prediction-' + FLAGS.model_architecture + '.txt', 'w')
+  fid_s = open('scores-' + FLAGS.model_architecture + '.txt', 'w')
   ii = 0
   for i in xrange(0, set_size, FLAGS.LB_test_batch_size):
     print(ii * FLAGS.LB_test_batch_size)
     ii += 1
     test_fingerprints, test_ground_truth = audio_processor.get_data(
       FLAGS.LB_test_batch_size, i, model_settings, 0.0, 0.0, 0, 'LB_test', sess)
-    test_accuracy, prediction, = sess.run(
-      [evaluation_step, predicted_indices],
+    test_accuracy, scores, prediction, = sess.run(
+      [evaluation_step, logits, predicted_indices],
       feed_dict={
         fingerprint_input: test_fingerprints,
         ground_truth_input: test_ground_truth,
-        dropout_prob: 1.0,
+        is_training: False
       })
     batch_size = min(FLAGS.LB_test_batch_size, set_size - i)
     for j in range(0, batch_size):
       fid_w.write("%s\n" % prd[prediction[j]])
+      fid_s.write("%s\n" % scores[j])
       # print(prediction[j])
   fid_w.close()
   
   # write submission csv file
   fid_filename = open('LB_test_filename.txt', 'r')
-  fid_prediction = open('prediction.txt', 'r')
+  fid_prediction = open('prediction' + FLAGS.model_architecture + '.txt', 'r')
   
   filename = fid_filename.read().split('\n')
   prediction = fid_prediction.read().split('\n')
@@ -146,6 +149,7 @@ def main(_):
   for i in range(0, k):
     fid_w.write("%s,%s\n" % (filename[i], prediction[i]))
   fid_w.close()
+  fid_s.close()
 
 
 if __name__ == '__main__':
