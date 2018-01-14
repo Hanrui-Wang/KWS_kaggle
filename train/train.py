@@ -124,12 +124,13 @@ def main(_):
 
   fingerprint_input = tf.placeholder(
       tf.float32, [None, fingerprint_size], name='fingerprint_input')
+  is_training = tf.placeholder(tf.bool)
 
-  logits, dropout_prob = models.create_model(
+  logits = models.create_model(
       fingerprint_input,
       model_settings,
       FLAGS.model_architecture,
-      is_training=True)
+      is_training)
 
   # Define loss and optimizer
   ground_truth_input = tf.placeholder(
@@ -215,10 +216,10 @@ def main(_):
             increment_global_step
         ],
         feed_dict={
-            fingerprint_input: train_fingerprints,
-            ground_truth_input: train_ground_truth,
-            learning_rate_input: learning_rate_value,
-            dropout_prob: 0.5
+          fingerprint_input: train_fingerprints,
+          ground_truth_input: train_ground_truth,
+          learning_rate_input: learning_rate_value,
+          is_training: True
         })
     train_writer.add_summary(train_summary, training_step)
     tf.logging.info('Step #%d: rate %f, accuracy %.1f%%, cross entropy %f' %
@@ -240,7 +241,7 @@ def main(_):
             feed_dict={
                 fingerprint_input: validation_fingerprints,
                 ground_truth_input: validation_ground_truth,
-                dropout_prob: 1.0
+                is_training: False
             })
         validation_writer.add_summary(validation_summary, training_step)
         batch_size = min(FLAGS.batch_size, set_size - i)
@@ -277,7 +278,7 @@ def main(_):
         feed_dict={
             fingerprint_input: test_fingerprints,
             ground_truth_input: test_ground_truth,
-            dropout_prob: 1.0
+            is_training: False
         })
     batch_size = min(FLAGS.batch_size, set_size - i)
     total_accuracy += (test_accuracy * batch_size) / set_size
