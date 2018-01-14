@@ -148,13 +148,14 @@ def main(_):
     cross_entropy_mean = tf.losses.sparse_softmax_cross_entropy(
         labels=ground_truth_input, logits=logits)
   tf.summary.scalar('cross_entropy', cross_entropy_mean)
-  with tf.name_scope('train'), tf.control_dependencies(control_dependencies):
+  update_extra_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
+  with tf.name_scope('train'), tf.control_dependencies(control_dependencies), \
+       tf.control_dependencies(update_extra_ops):
     learning_rate_input = tf.placeholder(
         tf.float32, [], name='learning_rate_input')
     # train_step = tf.train.GradientDescentOptimizer(
     #     learning_rate_input).minimize(cross_entropy_mean)
     loss = cross_entropy_mean + tf.losses.get_regularization_loss()
-    update_extra_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
     train_step = tf.train.AdamOptimizer(
         learning_rate = learning_rate_input).minimize(loss)
 
@@ -215,7 +216,7 @@ def main(_):
     train_summary, train_accuracy, cross_entropy_value, _, _, _ = sess.run(
         [
           merged_summaries, evaluation_step, cross_entropy_mean, train_step,
-          update_extra_ops, increment_global_step
+          increment_global_step
         ],
         feed_dict={
           fingerprint_input: train_fingerprints,
