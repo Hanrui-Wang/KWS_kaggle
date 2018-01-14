@@ -331,8 +331,6 @@ def create_resnet(fingerprint_input, model_settings, is_training):
 
 
 def create_multilayer_lstm(fingerprint_input, model_settings, is_training):
-  if is_training:
-    dropout_prob = tf.placeholder(tf.float32, name='dropout_prob')
   input_frequency_size = model_settings['dct_coefficient_count']
   input_time_size = model_settings['spectrogram_length']
   label_count = model_settings['label_count']
@@ -347,7 +345,7 @@ def create_multilayer_lstm(fingerprint_input, model_settings, is_training):
       num_units=1024,
       initializer=initializer
     )
-    for _ in range(2)
+    for _ in range(5)
   ])
   _, final_state = tf.nn.dynamic_rnn(
     inputs=fingerprint_3d,
@@ -364,8 +362,4 @@ def create_multilayer_lstm(fingerprint_input, model_settings, is_training):
     units=label_count,
     kernel_initializer=initializer
   )
-
-  if is_training:
-    return final_fc, dropout_prob
-  else:
-    return final_fc
+  return final_fc

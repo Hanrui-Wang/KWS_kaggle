@@ -153,6 +153,7 @@ def main(_):
         tf.float32, [], name='learning_rate_input')
     # train_step = tf.train.GradientDescentOptimizer(
     #     learning_rate_input).minimize(cross_entropy_mean)
+    loss = cross_entropy_mean + tf.losses.get_regularization_loss()
     train_step = tf.train.AdamOptimizer(
         learning_rate = learning_rate_input).minimize(cross_entropy_mean)
 
