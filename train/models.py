@@ -275,10 +275,10 @@ def create_resnet(fingerprint_input, model_settings, is_training):
   def _SeScale(x, reduction=16):
     channel = x.shape[-1]
     x = tf.layers.average_pooling2d(x, pool_size=(2, 2), strides=(2, 2))
-    x = tf.layers.conv2d(x, filters=reduction, kernel_size=1, padding=0,
+    x = tf.layers.conv2d(x, filters=reduction, kernel_size=1, padding='SAME',
                          kernel_initializer=initializer)
     x = tf.nn.relu(x)
-    x = tf.layers.conv2d(x, filters=channel, kernel_size=1, padding=0,
+    x = tf.layers.conv2d(x, filters=channel, kernel_size=1, padding='SAME',
                          kernel_initializer=initializer)
     x = tf.nn.sigmoid(x)
     return x
