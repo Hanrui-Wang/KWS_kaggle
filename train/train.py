@@ -194,6 +194,7 @@ def main(_):
     f.write('\n'.join(audio_processor.words_list))
 
   # Training loop.
+  best_accuracy = 0
   training_steps_max = np.sum(training_steps_list)
   for training_step in xrange(start_step, training_steps_max + 1):
     # Figure out what the current learning rate is.
@@ -252,13 +253,17 @@ def main(_):
       tf.logging.info('Step %d: Validation accuracy = %.1f%% (N=%d)' %
                       (training_step, total_accuracy * 100, set_size))
 
-    # Save the model checkpoint periodically.
-    if (training_step % FLAGS.save_step_interval == 0 or
-        training_step == training_steps_max):
-      checkpoint_path = os.path.join(FLAGS.train_dir,
-                                     FLAGS.model_architecture + '.ckpt')
-      tf.logging.info('Saving to "%s-%d"', checkpoint_path, training_step)
-      saver.save(sess, checkpoint_path, global_step=training_step)
+      # Save the model checkpoint periodically.
+      if total_accuracy > best_accuracy:
+        best_accuracy = total_accuracy
+        checkpoint_path = os.path.join(FLAGS.train_dir, 'best',
+                                       FLAGS.model_architecture + '_' + str(
+                                         int(best_accuracy * 10000)) + '.ckpt')
+        tf.logging.info('Saving best model to "%s-%d"', checkpoint_path,
+                        training_step)
+        saver.save(sess, checkpoint_path, global_step=training_step)
+      tf.logging.info(
+        'So far the best validation accuracy is %.2f%%' % (best_accuracy * 100))
 
   set_size = audio_processor.set_size('testing')
   tf.logging.info('set_size=%d', set_size)
@@ -406,11 +411,6 @@ if __name__ == '__main__':
       type=str,
       default='/tmp/speech_commands_train',
       help='Directory to write event logs and checkpoint.')
-  parser.add_argument(
-      '--save_step_interval',
-      type=int,
-      default=100,
-      help='Save model checkpoint every save_steps.')
   parser.add_argument(
       '--start_checkpoint',
       type=str,
