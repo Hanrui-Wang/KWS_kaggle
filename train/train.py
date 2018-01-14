@@ -212,7 +212,7 @@ def main(_):
         FLAGS.batch_size, 0, model_settings, FLAGS.background_frequency,
         FLAGS.background_volume, time_shift_samples, 'training', sess)
     # Run the graph with this batch of training data.
-    train_summary, train_accuracy, cross_entropy_value, _, _ = sess.run(
+    train_summary, train_accuracy, cross_entropy_value, _, _, _ = sess.run(
         [
           merged_summaries, evaluation_step, cross_entropy_mean, train_step,
           update_extra_ops, increment_global_step
