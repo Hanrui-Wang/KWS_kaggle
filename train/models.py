@@ -274,7 +274,6 @@ def create_resnet(fingerprint_input, model_settings, is_training):
 
   def _SeScale(x, reduction=16):
     channel = x.shape[-1]
-    # x = tf.reduce_mean(x, axis=(1, 2), keep_dims=True)
     x = tf.layers.conv2d(x, filters=reduction, kernel_size=1, padding='SAME',
                          kernel_initializer=initializer)
     x = tf.nn.relu(x)
