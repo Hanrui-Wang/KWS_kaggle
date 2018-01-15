@@ -463,7 +463,7 @@ def create_multilayer_lstm(fingerprint_input, model_settings, is_training):
 
   cell = tf.nn.rnn_cell.MultiRNNCell([
     tf.nn.rnn_cell.LSTMCell(
-      num_units=1024,
+      num_units=512,
       initializer=initializer
     )
     for _ in range(2)
@@ -474,9 +474,7 @@ def create_multilayer_lstm(fingerprint_input, model_settings, is_training):
     cell=cell
   )
 
-  hidden0 = tf.concat(final_state[0], axis=1)
-  hidden1 = tf.concat(final_state[1], axis=1)
-  hidden = tf.concat((hidden0, hidden1), axis=1)
+  hidden = tf.concat(final_state[1], axis=1)
 
   final_fc = tf.layers.dense(
     inputs=hidden,
@@ -646,22 +644,39 @@ def create_crnn_model(fingerprint_input, model_settings, is_training):
   layer_norm = False
   bidirectional = False
 
-  first_conv = tf.layers.conv2d(
-    inputs=fingerprint_4d,
-    kernel_size=(8, 8),
+  hidden = fingerprint_4d
+  hidden = tf.layers.conv2d(
+    inputs=hidden,
+    kernel_size=(10, 10),
+    filters=64,
+    strides=(2, 2),
+    padding='VALID',
+    kernel_initializer=initializer
+  )
+  hidden = tf.nn.relu(hidden)
+
+  hidden = tf.layers.conv2d(
+    inputs=hidden,
+    kernel_size=(10, 10),
     filters=64,
     strides=(2, 2),
     padding='VALID',
     kernel_initializer=initializer
   )
 
-  first_relu = tf.nn.relu(first_conv)
-  first_dropout = tf.layers.dropout(first_relu, rate=0.3, training=is_training)
+  hidden = tf.layers.max_pooling2d(
+    hidden,
+    pool_size=2,
+    strides=2
+  )
+  hidden = tf.nn.relu(hidden)
+  hidden = tf.layers.dropout(hidden, rate=0.3, training=is_training)
 
   # GRU part
   num_rnn_layers = 2
   RNN_units = 512
-  flow = tf.layers.flatten(first_dropout)
+  flow = tf.reshape(hidden, [-1, hidden.shape[1],
+                             hidden.shape[2] * hidden.shape[3]])
   cell_fw = []
   cell_bw = []
   if layer_norm:
