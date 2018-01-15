@@ -454,7 +454,7 @@ def create_multilayer_lstm(fingerprint_input, model_settings, is_training):
       num_units=1024,
       initializer=initializer
     )
-    for _ in range(5)
+    for _ in range(2)
   ])
   _, final_state = tf.nn.dynamic_rnn(
     inputs=fingerprint_3d,
@@ -486,7 +486,7 @@ def create_multilayer_gru(fingerprint_input, model_settings, is_training):
 
   cell = tf.nn.rnn_cell.MultiRNNCell([
     tf.nn.rnn_cell.GRUCell(
-      num_units=2048
+      num_units=1024
     )
     for _ in range(2)
   ])

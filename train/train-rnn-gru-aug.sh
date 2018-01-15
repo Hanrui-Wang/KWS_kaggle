@@ -1,9 +1,9 @@
 python2 train.py \
 --data_url='' \
 --data_dir='./dataset' \
---summaries_dir='./summary/ml-bigru-aug-noise' \
---train_dir='./model/ml-bigru-aug-noise' \
---model_architecture='bigru' \
+--summaries_dir='./summary/ml-gru-aug-noise' \
+--train_dir='./model/ml-gru-aug-noise' \
+--model_architecture='multilayer_gru' \
 --batch_size=100 \
 --learning_rate='0.0005,0.00001,0.000001' \
 --how_many_training_steps='1500,3000,8000' \

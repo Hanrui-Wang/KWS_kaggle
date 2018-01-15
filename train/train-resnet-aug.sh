@@ -1,0 +1,17 @@
+python2 train.py \
+--data_url='' \
+--data_dir='./dataset' \
+--summaries_dir='./summary/resnet-new-big' \
+--train_dir='./model/resnet-new-big' \
+--model_architecture='resnet' \
+--batch_size=100 \
+--stretch=0.3 \
+--time_shift_ms=150 \
+--background_frequency=0.9 \
+--background_volume=0.18 \
+--unknown_percentage=25.0 \
+--dct_coefficient_count=40 \
+--window_size_ms=25 \
+--window_stride_ms=10 \
+--learning_rate='0.0005,0.0001,0.00005' \
+--how_many_training_steps='1500,5000,8000'
