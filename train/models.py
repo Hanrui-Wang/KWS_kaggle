@@ -20,7 +20,15 @@ from __future__ import division
 from __future__ import print_function
 
 import math
-import numpy as np
+import tensorflow as tf
+import tensorflow.contrib.slim as slim
+from tensorflow.contrib.layers.python.layers import layers
+from tensorflow.python.ops import array_ops
+from tensorflow.python.ops import init_ops
+from tensorflow.python.ops import math_ops
+from tensorflow.python.ops import nn_ops
+from tensorflow.python.ops import rnn_cell_impl
+from tensorflow.python.ops import variable_scope as vs
 
 import tensorflow as tf
 
@@ -120,6 +128,8 @@ def create_model(fingerprint_input, model_settings, model_architecture,
                                  is_training)
   elif model_architecture == 'bigru':
     return create_bigru(fingerprint_input, model_settings, is_training)
+  elif model_architecture == 'crnn':
+    return create_crnn_model(fingerprint_input, model_settings, is_training)
   else:
     raise Exception('model_architecture argument "' + model_architecture +
                     '" not recognized, should be one of "single_fc", "conv",'
@@ -250,7 +260,8 @@ def create_conv_model(fingerprint_input, model_settings, is_training):
   second_conv = tf.nn.conv2d(max_pool, second_weights, [1, 1, 1, 1],
                              'SAME') + second_bias
   second_relu = tf.nn.relu(second_conv)
-  second_dropout = tf.layers.dropout(second_relu, rate=0.5, training=is_training)
+  second_dropout = tf.layers.dropout(second_relu, rate=0.5,
+                                     training=is_training)
   second_conv_shape = second_dropout.get_shape()
   second_conv_output_width = second_conv_shape[2]
   second_conv_output_height = second_conv_shape[1]
@@ -342,6 +353,7 @@ def create_resnet(fingerprint_input, model_settings, is_training):
   final_fc = tf.layers.dense(hidden, units=label_count,
                              kernel_initializer=initializer)
   return final_fc
+
 
 def create_big_resnet(fingerprint_input, model_settings, is_training):
   input_frequency_size = model_settings['dct_coefficient_count']  # 40
@@ -511,6 +523,7 @@ def create_multilayer_gru(fingerprint_input, model_settings, is_training):
   )
   return final_fc
 
+
 def create_bigru(fingerprint_input, model_settings, is_training):
   input_frequency_size = model_settings['dct_coefficient_count']
   input_time_size = model_settings['spectrogram_length']
@@ -536,6 +549,155 @@ def create_bigru(fingerprint_input, model_settings, is_training):
 
   final_fc = tf.layers.dense(
     inputs=hidden,
+    units=label_count,
+    kernel_initializer=initializer
+  )
+  return final_fc
+
+
+class LayerNormGRUCell(rnn_cell_impl.RNNCell):
+  def __init__(self, num_units, forget_bias=1.0,
+               input_size=None, activation=math_ops.tanh,
+               layer_norm=True, norm_gain=1.0, norm_shift=0.0,
+               dropout_keep_prob=1.0, dropout_prob_seed=None,
+               reuse=None):
+
+    super(LayerNormGRUCell, self).__init__(_reuse=reuse)
+
+    if input_size is not None:
+      tf.logging.info("%s: The input_size parameter is deprecated.", self)
+
+    self._num_units = num_units
+    self._activation = activation
+    self._forget_bias = forget_bias
+    self._keep_prob = dropout_keep_prob
+    self._seed = dropout_prob_seed
+    self._layer_norm = layer_norm
+    self._g = norm_gain
+    self._b = norm_shift
+    self._reuse = reuse
+
+  @property
+  def state_size(self):
+    return self._num_units
+
+  @property
+  def output_size(self):
+    return self._num_units
+
+  def _norm(self, inp, scope):
+    shape = inp.get_shape()[-1:]
+    gamma_init = init_ops.constant_initializer(self._g)
+    beta_init = init_ops.constant_initializer(self._b)
+    with vs.variable_scope(scope):
+      # Initialize beta and gamma for use by layer_norm.
+      vs.get_variable("gamma", shape=shape, initializer=gamma_init)
+      vs.get_variable("beta", shape=shape, initializer=beta_init)
+    normalized = layers.layer_norm(inp, reuse=True, scope=scope)
+    return normalized
+
+  def _linear(self, args, copy):
+    out_size = copy * self._num_units
+    proj_size = args.get_shape()[-1]
+    weights = vs.get_variable("kernel", [proj_size, out_size])
+    out = math_ops.matmul(args, weights)
+    if not self._layer_norm:
+      bias = vs.get_variable("bias", [out_size])
+      out = nn_ops.bias_add(out, bias)
+    return out
+
+  def call(self, inputs, state):
+    """LSTM cell with layer normalization and recurrent dropout."""
+    with vs.variable_scope("gates"):
+      h = state
+      args = array_ops.concat([inputs, h], 1)
+      concat = self._linear(args, 2)
+
+      z, r = array_ops.split(value=concat, num_or_size_splits=2, axis=1)
+      if self._layer_norm:
+        z = self._norm(z, "update")
+        r = self._norm(r, "reset")
+
+    with vs.variable_scope("candidate"):
+      args = array_ops.concat([inputs, math_ops.sigmoid(r) * h], 1)
+      new_c = self._linear(args, 1)
+      if self._layer_norm:
+        new_c = self._norm(new_c, "state")
+    new_h = self._activation(new_c) * math_ops.sigmoid(z) + \
+            (1 - math_ops.sigmoid(z)) * h
+    return new_h, new_h
+
+
+def create_crnn_model(fingerprint_input, model_settings, is_training):
+  """Builds a model with convolutional recurrent networks with GRUs
+  Based on the model definition in https://arxiv.org/abs/1703.05390
+  model_size_info: defines the following convolution layer parameters
+      {number of conv features, conv filter height, width, stride in y,x dir.},
+      followed by number of GRU layers and number of GRU cells per layer
+  Optionally, the bi-directional GRUs and/or GRU with layer-normalization
+    can be explored.
+  """
+  input_frequency_size = model_settings['dct_coefficient_count']
+  input_time_size = model_settings['spectrogram_length']
+  fingerprint_4d = tf.reshape(fingerprint_input,
+                              [-1, input_time_size, input_frequency_size, 1])
+  initializer = tf.truncated_normal_initializer(stddev=0.01)
+
+  layer_norm = False
+  bidirectional = False
+
+  first_conv = tf.layers.conv2d(
+    inputs=fingerprint_4d,
+    kernel_size=(8, 8),
+    filters=64,
+    strides=(2, 2),
+    padding='VALID',
+    kernel_initializer=initializer
+  )
+
+  first_relu = tf.nn.relu(first_conv)
+  first_dropout = tf.layers.dropout(first_relu, rate=0.3, training=is_training)
+
+  # GRU part
+  num_rnn_layers = 2
+  RNN_units = 512
+  flow = tf.layers.flatten(first_dropout)
+  cell_fw = []
+  cell_bw = []
+  if layer_norm:
+    for i in range(num_rnn_layers):
+      cell_fw.append(LayerNormGRUCell(RNN_units))
+      if bidirectional:
+        cell_bw.append(LayerNormGRUCell(RNN_units))
+  else:
+    for i in range(num_rnn_layers):
+      cell_fw.append(tf.contrib.rnn.GRUCell(RNN_units))
+      if bidirectional:
+        cell_bw.append(tf.contrib.rnn.GRUCell(RNN_units))
+
+  if bidirectional:
+    outputs, output_state_fw, output_state_bw = \
+      tf.contrib.rnn.stack_bidirectional_dynamic_rnn(cell_fw, cell_bw, flow,
+                                                     dtype=tf.float32)
+    flow = tf.layers.flatten(outputs)
+  else:
+    cells = tf.contrib.rnn.MultiRNNCell(cell_fw)
+    _, last = tf.nn.dynamic_rnn(cell=cells, inputs=flow, dtype=tf.float32)
+    flow = last[-1]
+
+  first_fc = tf.layers.dense(
+    inputs=flow,
+    units=128,
+    kernel_initializer=initializer,
+  )
+  first_fc = tf.nn.relu(first_fc)
+  final_fc_input = tf.layers.dropout(first_fc,
+                                     rate=0.3, training=is_training)
+
+  label_count = model_settings['label_count']
+
+  final_fc = tf.layers.dense(
+    inputs=final_fc_input,
     units=label_count,
     kernel_initializer=initializer
   )
