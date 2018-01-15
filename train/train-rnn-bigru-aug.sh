@@ -1,0 +1,19 @@
+python2 train.py \
+--data_url='' \
+--data_dir='./dataset' \
+--summaries_dir='./summary/ml-gru-aug-noise' \
+--train_dir='./model/ml-gru-aug-noise' \
+--model_architecture='multilayer_gru' \
+--batch_size=100 \
+--learning_rate='0.0005,0.00001,0.000001' \
+--how_many_training_steps='1500,3000,8000' \
+--stretch=0.3 \
+--time_shift_ms=150 \
+--background_frequency=0.9 \
+--background_volume=0.18 \
+--unknown_percentage=25.0 \
+--dct_coefficient_count=40 \
+--window_size_ms=25 \
+--window_stride_ms=10 \
+--weight_noise_stddev='0.01,0.001' \
+--how_many_noisy_steps='1500,2000' \

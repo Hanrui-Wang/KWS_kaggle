@@ -111,10 +111,12 @@ def create_model(fingerprint_input, model_settings, model_architecture,
   elif model_architecture == 'multilayer_gru':
     return create_multilayer_gru(fingerprint_input, model_settings,
                                  is_training)
+  elif model_architecture == 'bigru':
+    return create_bigru(fingerprint_input, model_settings, is_training)
   else:
     raise Exception('model_architecture argument "' + model_architecture +
                     '" not recognized, should be one of "single_fc", "conv",'
-                    ' "multilayer_lstm" or "resnet"')
+                    ' "multilayer_lstm", "bigru" or "resnet"')
 
 
 def load_variables_from_checkpoint(sess, start_checkpoint):
@@ -477,7 +479,7 @@ def create_multilayer_gru(fingerprint_input, model_settings, is_training):
 
   cell = tf.nn.rnn_cell.MultiRNNCell([
     tf.nn.rnn_cell.GRUCell(
-      num_units=512
+      num_units=2048
     )
     for _ in range(2)
   ])
@@ -486,6 +488,36 @@ def create_multilayer_gru(fingerprint_input, model_settings, is_training):
     dtype=tf.float32,
     cell=cell
   )
+
+  hidden = tf.concat(final_state, axis=1)
+
+  hidden = tf.layers.dense(
+    inputs=hidden,
+    units=1024,
+    kernel_initializer=initializer
+  )
+
+  final_fc = tf.layers.dense(
+    inputs=hidden,
+    units=label_count,
+    kernel_initializer=initializer
+  )
+  return final_fc
+
+def create_bigru(fingerprint_input, model_settings, is_training):
+  input_frequency_size = model_settings['dct_coefficient_count']
+  input_time_size = model_settings['spectrogram_length']
+  label_count = model_settings['label_count']
+
+  fingerprint_3d = tf.reshape(fingerprint_input,
+                              [-1, input_time_size, input_frequency_size])
+
+  initializer = tf.truncated_normal_initializer(stddev=0.01)
+
+  cell_fw = tf.nn.rnn_cell.GRUCell(num_units=1024)
+  cell_bw = tf.nn.rnn_cell.GRUCell(num_units=1024)
+  _, final_state = tf.nn.bidirectional_dynamic_rnn(
+    cell_fw, cell_bw, fingerprint_3d, dtype=tf.float32)
 
   hidden = tf.concat(final_state, axis=1)
 

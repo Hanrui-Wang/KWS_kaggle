@@ -88,22 +88,22 @@ FLAGS = None
 def main(_):
   # We want to see all the logging messages for this tutorial.
   tf.logging.set_verbosity(tf.logging.INFO)
-
+  
   # Start a new TensorFlow session.
   sess = tf.InteractiveSession()
-
+  
   # Begin by making sure we have the training data we need. If you already have
   # training data of your own, use `--data_url= ` on the command line to avoid
   # downloading.
   model_settings = models.prepare_model_settings(
-      len(input_data.prepare_words_list(FLAGS.wanted_words.split(','))),
-      FLAGS.sample_rate, FLAGS.clip_duration_ms, FLAGS.window_size_ms,
-      FLAGS.window_stride_ms, FLAGS.dct_coefficient_count, FLAGS.stretch)
+    len(input_data.prepare_words_list(FLAGS.wanted_words.split(','))),
+    FLAGS.sample_rate, FLAGS.clip_duration_ms, FLAGS.window_size_ms,
+    FLAGS.window_stride_ms, FLAGS.dct_coefficient_count, FLAGS.stretch)
   audio_processor = input_data.AudioProcessor(
-      FLAGS.data_url, FLAGS.data_dir, FLAGS.silence_percentage,
-      FLAGS.unknown_percentage,
-      FLAGS.wanted_words.split(','), FLAGS.validation_percentage,
-      FLAGS.testing_percentage, model_settings)
+    FLAGS.data_url, FLAGS.data_dir, FLAGS.silence_percentage,
+    FLAGS.unknown_percentage,
+    FLAGS.wanted_words.split(','), FLAGS.validation_percentage,
+    FLAGS.testing_percentage, model_settings)
   fingerprint_size = model_settings['fingerprint_size']
   label_count = model_settings['label_count']
   time_shift_samples = int((FLAGS.time_shift_ms * FLAGS.sample_rate) / 1000)
@@ -118,85 +118,95 @@ def main(_):
   learning_rates_list = list(map(float, FLAGS.learning_rate.split(',')))
   if len(training_steps_list) != len(learning_rates_list):
     raise Exception(
-        '--how_many_training_steps and --learning_rate must be equal length '
-        'lists, but are %d and %d long instead' % (len(training_steps_list),
-                                                   len(learning_rates_list)))
-
+      '--how_many_training_steps and --learning_rate must be equal length '
+      'lists, but are %d and %d long instead' % (len(training_steps_list),
+                                                 len(learning_rates_list)))
+  weight_noise_stddevs_list = list(
+    map(float, FLAGS.weight_noise_stddev.split(',')))
+  weight_noise_steps_list = list(
+    map(int, FLAGS.how_many_noisy_steps.split(',')))
+  
   fingerprint_input = tf.placeholder(
-      tf.float32, [None, fingerprint_size], name='fingerprint_input')
+    tf.float32, [None, fingerprint_size], name='fingerprint_input')
   is_training = tf.placeholder(tf.bool)
-
+  weight_noise_stddev_input = tf.placeholder(tf.float32)
+  
   logits = models.create_model(
-      fingerprint_input,
-      model_settings,
-      FLAGS.model_architecture,
-      is_training)
-
+    fingerprint_input,
+    model_settings,
+    FLAGS.model_architecture,
+    is_training)
+  
   # Define loss and optimizer
   ground_truth_input = tf.placeholder(
-      tf.int64, [None], name='groundtruth_input')
-
+    tf.int64, [None], name='groundtruth_input')
+  
   # Optionally we can add runtime checks to spot when NaNs or other symptoms of
   # numerical errors start occurring during training.
   control_dependencies = []
   if FLAGS.check_nans:
     checks = tf.add_check_numerics_ops()
     control_dependencies = [checks]
-
+  
   # Create the back propagation and training evaluation machinery in the graph.
   with tf.name_scope('cross_entropy'):
     cross_entropy_mean = tf.losses.sparse_softmax_cross_entropy(
-        labels=ground_truth_input, logits=logits)
+      labels=ground_truth_input, logits=logits)
   tf.summary.scalar('cross_entropy', cross_entropy_mean)
   update_extra_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
+  apply_weight_noise_ops = []
+  for var in tf.get_collection(tf.GraphKeys.WEIGHTS):
+    apply_weight_noise_ops.append(tf.assign(var, var + tf.truncated_normal(
+      var.shape, mean=0.0, stddev=weight_noise_stddev_input, dtype=tf.float32)))
+  print(tf.get_collection(tf.GraphKeys.WEIGHTS))
   with tf.name_scope('train'), tf.control_dependencies(control_dependencies), \
        tf.control_dependencies(update_extra_ops):
     learning_rate_input = tf.placeholder(
-        tf.float32, [], name='learning_rate_input')
+      tf.float32, [], name='learning_rate_input')
     # train_step = tf.train.GradientDescentOptimizer(
     #     learning_rate_input).minimize(cross_entropy_mean)
     loss = cross_entropy_mean + tf.losses.get_regularization_loss()
     train_step = tf.train.AdamOptimizer(
-        learning_rate = learning_rate_input).minimize(loss)
-
+      learning_rate=learning_rate_input).minimize(loss)
+  
   predicted_indices = tf.argmax(logits, 1)
   correct_prediction = tf.equal(predicted_indices, ground_truth_input)
   confusion_matrix = tf.confusion_matrix(
-      ground_truth_input, predicted_indices, num_classes=label_count)
+    ground_truth_input, predicted_indices, num_classes=label_count)
   evaluation_step = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
   tf.summary.scalar('accuracy', evaluation_step)
-
+  
   global_step = tf.train.get_or_create_global_step()
   increment_global_step = tf.assign(global_step, global_step + 1)
-
+  
   saver = tf.train.Saver(tf.global_variables())
-
+  
   # Merge all the summaries and write them out to /tmp/retrain_logs (by default)
   merged_summaries = tf.summary.merge_all()
   train_writer = tf.summary.FileWriter(FLAGS.summaries_dir + '/train',
                                        sess.graph)
   validation_writer = tf.summary.FileWriter(FLAGS.summaries_dir + '/validation')
-
+  
   tf.global_variables_initializer().run()
-
+  
   start_step = 1
-
+  
   if FLAGS.start_checkpoint:
     models.load_variables_from_checkpoint(sess, FLAGS.start_checkpoint)
     start_step = global_step.eval(session=sess)
-
+  
   tf.logging.info('Training from step: %d ', start_step)
-
+  
   # Save graph.pbtxt.
   tf.train.write_graph(sess.graph_def, FLAGS.train_dir,
                        FLAGS.model_architecture + '.pbtxt')
-
+  
   # Save list of words.
   with gfile.GFile(
       os.path.join(FLAGS.train_dir, FLAGS.model_architecture + '_labels.txt'),
       'w') as f:
     f.write('\n'.join(audio_processor.words_list))
-
+  
   # Training loop.
   best_accuracy = 0
   training_steps_max = np.sum(training_steps_list)
@@ -208,26 +218,36 @@ def main(_):
       if training_step <= training_steps_sum:
         learning_rate_value = learning_rates_list[i]
         break
+    
+    weight_noise_steps_sum = 0
+    weight_noise_stddev = 0.0
+    for i in range(len(training_steps_list)):
+      weight_noise_steps_sum += weight_noise_steps_list[i]
+      if training_step <= weight_noise_steps_sum:
+        weight_noise_stddev = weight_noise_stddevs_list[i]
+        break
     # Pull the audio samples we'll use for training.
     train_fingerprints, train_ground_truth = audio_processor.get_data(
-        FLAGS.batch_size, 0, model_settings, FLAGS.background_frequency,
-        FLAGS.background_volume, time_shift_samples, 'training', sess)
+      FLAGS.batch_size, 0, model_settings, FLAGS.background_frequency,
+      FLAGS.background_volume, time_shift_samples, 'training', sess)
     # Run the graph with this batch of training data.
-    train_summary, train_accuracy, cross_entropy_value, _, _ = sess.run(
-        [
-          merged_summaries, evaluation_step, cross_entropy_mean, train_step,
-          increment_global_step
-        ],
-        feed_dict={
-          fingerprint_input: train_fingerprints,
-          ground_truth_input: train_ground_truth,
-          learning_rate_input: learning_rate_value,
-          is_training: True
-        })
+    train_summary, train_accuracy, cross_entropy_value, _, _, _ = sess.run(
+      [
+        merged_summaries, evaluation_step, cross_entropy_mean, train_step,
+        apply_weight_noise_ops, increment_global_step
+      ],
+      feed_dict={
+        fingerprint_input: train_fingerprints,
+        ground_truth_input: train_ground_truth,
+        learning_rate_input: learning_rate_value,
+        weight_noise_stddev_input: weight_noise_stddev,
+        is_training: True
+      })
     train_writer.add_summary(train_summary, training_step)
-    tf.logging.info('Step #%d: rate %f, accuracy %.1f%%, cross entropy %f' %
-                    (training_step, learning_rate_value, train_accuracy * 100,
-                     cross_entropy_value))
+    tf.logging.info('Step #%d: rate %f, noise: %f, accuracy %.3f%%, cross en'
+                    'tropy %f' % (training_step, learning_rate_value,
+                                  weight_noise_stddev, train_accuracy * 100,
+                                  cross_entropy_value))
     is_last_step = (training_step == training_steps_max)
     if (training_step % FLAGS.eval_step_interval) == 0 or is_last_step:
       set_size = audio_processor.set_size('validation')
@@ -235,17 +255,17 @@ def main(_):
       total_conf_matrix = None
       for i in xrange(0, set_size, FLAGS.batch_size):
         validation_fingerprints, validation_ground_truth = (
-            audio_processor.get_data(FLAGS.batch_size, i, model_settings, 0.0,
-                                     0.0, 0, 'validation', sess))
+          audio_processor.get_data(FLAGS.batch_size, i, model_settings, 0.0,
+                                   0.0, 0, 'validation', sess))
         # Run a validation step and capture training summaries for TensorBoard
         # with the `merged` op.
         validation_summary, validation_accuracy, conf_matrix = sess.run(
-            [merged_summaries, evaluation_step, confusion_matrix],
-            feed_dict={
-                fingerprint_input: validation_fingerprints,
-                ground_truth_input: validation_ground_truth,
-                is_training: False
-            })
+          [merged_summaries, evaluation_step, confusion_matrix],
+          feed_dict={
+            fingerprint_input: validation_fingerprints,
+            ground_truth_input: validation_ground_truth,
+            is_training: False
+          })
         validation_writer.add_summary(validation_summary, training_step)
         batch_size = min(FLAGS.batch_size, set_size - i)
         total_accuracy += (validation_accuracy * batch_size) / set_size
@@ -256,7 +276,7 @@ def main(_):
       tf.logging.info('Confusion Matrix:\n %s' % (total_conf_matrix))
       tf.logging.info('Step %d: Validation accuracy = %.1f%% (N=%d)' %
                       (training_step, total_accuracy * 100, set_size))
-
+      
       # Save the model checkpoint periodically.
       if total_accuracy > best_accuracy:
         best_accuracy = total_accuracy
@@ -268,21 +288,21 @@ def main(_):
         saver.save(sess, checkpoint_path, global_step=training_step)
       tf.logging.info(
         'So far the best validation accuracy is %.2f%%' % (best_accuracy * 100))
-
+  
   set_size = audio_processor.set_size('testing')
   tf.logging.info('set_size=%d', set_size)
   total_accuracy = 0
   total_conf_matrix = None
   for i in xrange(0, set_size, FLAGS.batch_size):
     test_fingerprints, test_ground_truth = audio_processor.get_data(
-        FLAGS.batch_size, i, model_settings, 0.0, 0.0, 0, 'testing', sess)
+      FLAGS.batch_size, i, model_settings, 0.0, 0.0, 0, 'testing', sess)
     test_accuracy, conf_matrix = sess.run(
-        [evaluation_step, confusion_matrix],
-        feed_dict={
-            fingerprint_input: test_fingerprints,
-            ground_truth_input: test_ground_truth,
-            is_training: False
-        })
+      [evaluation_step, confusion_matrix],
+      feed_dict={
+        fingerprint_input: test_fingerprints,
+        ground_truth_input: test_ground_truth,
+        is_training: False
+      })
     batch_size = min(FLAGS.batch_size, set_size - i)
     total_accuracy += (test_accuracy * batch_size) / set_size
     if total_conf_matrix is None:
@@ -297,144 +317,155 @@ def main(_):
 if __name__ == '__main__':
   parser = argparse.ArgumentParser()
   parser.add_argument(
-      '--data_url',
-      type=str,
-      # pylint: disable=line-too-long
-      default='http://download.tensorflow.org/data/speech_commands_v0.01.tar.gz',
-      # pylint: enable=line-too-long
-      help='Location of speech training data archive on the web.')
+    '--data_url',
+    type=str,
+    # pylint: disable=line-too-long
+    default='http://download.tensorflow.org/data/speech_commands_v0.01.tar.gz',
+    # pylint: enable=line-too-long
+    help='Location of speech training data archive on the web.')
   parser.add_argument(
-      '--data_dir',
-      type=str,
-      default='/tmp/speech_dataset/',
-      help="""\
+    '--data_dir',
+    type=str,
+    default='/tmp/speech_dataset/',
+    help="""\
       Where to download the speech training data to.
       """)
   parser.add_argument(
-      '--background_volume',
-      type=float,
-      default=0.1,
-      help="""\
+    '--background_volume',
+    type=float,
+    default=0.1,
+    help="""\
       How loud the background noise should be, between 0 and 1.
       """)
   parser.add_argument(
-      '--background_frequency',
-      type=float,
-      default=0.8,
-      help="""\
+    '--background_frequency',
+    type=float,
+    default=0.8,
+    help="""\
       How many of the training samples have background noise mixed in.
       """)
   parser.add_argument(
-      '--silence_percentage',
-      type=float,
-      default=10.0,
-      help="""\
+    '--silence_percentage',
+    type=float,
+    default=10.0,
+    help="""\
       How much of the training data should be silence.
       """)
   parser.add_argument(
-      '--unknown_percentage',
-      type=float,
-      default=10.0,
-      help="""\
+    '--unknown_percentage',
+    type=float,
+    default=10.0,
+    help="""\
       How much of the training data should be unknown words.
       """)
   parser.add_argument(
-      '--time_shift_ms',
-      type=float,
-      default=100.0,
-      help="""\
+    '--time_shift_ms',
+    type=float,
+    default=100.0,
+    help="""\
       Range to randomly shift the training audio by in time.
       """)
   parser.add_argument(
-      '--testing_percentage',
-      type=int,
-      default=10,
-      help='What percentage of wavs to use as a test set.')
+    '--testing_percentage',
+    type=int,
+    default=10,
+    help='What percentage of wavs to use as a test set.')
   parser.add_argument(
-      '--validation_percentage',
-      type=int,
-      default=10,
-      help='What percentage of wavs to use as a validation set.')
+    '--validation_percentage',
+    type=int,
+    default=10,
+    help='What percentage of wavs to use as a validation set.')
   parser.add_argument(
-      '--sample_rate',
-      type=int,
-      default=16000,
-      help='Expected sample rate of the wavs',)
+    '--sample_rate',
+    type=int,
+    default=16000,
+    help='Expected sample rate of the wavs', )
   parser.add_argument(
-      '--clip_duration_ms',
-      type=int,
-      default=1000,
-      help='Expected duration in milliseconds of the wavs',)
+    '--clip_duration_ms',
+    type=int,
+    default=1000,
+    help='Expected duration in milliseconds of the wavs', )
   parser.add_argument(
-      '--window_size_ms',
-      type=float,
-      default=30.0,
-      help='How long each spectrogram timeslice is',)
+    '--window_size_ms',
+    type=float,
+    default=30.0,
+    help='How long each spectrogram timeslice is', )
   parser.add_argument(
-      '--window_stride_ms',
-      type=float,
-      default=10.0,
-      help='How long each spectrogram timeslice is',)
+    '--window_stride_ms',
+    type=float,
+    default=10.0,
+    help='How long each spectrogram timeslice is', )
   parser.add_argument(
-      '--dct_coefficient_count',
-      type=int,
-      default=40,
-      help='How many bins to use for the MFCC fingerprint',)
+    '--dct_coefficient_count',
+    type=int,
+    default=40,
+    help='How many bins to use for the MFCC fingerprint', )
   parser.add_argument(
-      '--how_many_training_steps',
-      type=str,
-      default='2000,3000,10000',
-      help='How many training loops to run',)
+    '--how_many_training_steps',
+    type=str,
+    default='2000,3000,10000',
+    help='How many training loops to run', )
   parser.add_argument(
-      '--eval_step_interval',
-      type=int,
-      default=200,
-      help='How often to evaluate the training results.')
+    '--eval_step_interval',
+    type=int,
+    default=200,
+    help='How often to evaluate the training results.')
   parser.add_argument(
-      '--learning_rate',
-      type=str,
-      default='0.0001,0.00005,0.000001',
-      help='How large a learning rate to use when training.')
+    '--learning_rate',
+    type=str,
+    default='0.0001,0.00005,0.000001',
+    help='How large a learning rate to use when training.')
   parser.add_argument(
-      '--batch_size',
-      type=int,
-      default=256,
-      help='How many items to train with at once',)
+    '--how_many_noisy_steps',
+    type=str,
+    default='1000,1000,5000',
+    help='How many training loops to run', )
   parser.add_argument(
-      '--summaries_dir',
-      type=str,
-      default='/tmp/retrain_logs',
-      help='Where to save summary logs for TensorBoard.')
+    '--weight_noise_stddev',
+    type=str,
+    default='0.1,0.01,0.001',
+    help='Noise to apply after each gradient descent step'
+  )
   parser.add_argument(
-      '--wanted_words',
-      type=str,
-      default='yes,no,up,down,left,right,on,off,stop,go',
-      help='Words to use (others will be added to an unknown label)',)
+    '--batch_size',
+    type=int,
+    default=256,
+    help='How many items to train with at once', )
   parser.add_argument(
-      '--train_dir',
-      type=str,
-      default='/tmp/speech_commands_train',
-      help='Directory to write event logs and checkpoint.')
+    '--summaries_dir',
+    type=str,
+    default='/tmp/retrain_logs',
+    help='Where to save summary logs for TensorBoard.')
   parser.add_argument(
-      '--start_checkpoint',
-      type=str,
-      default='',
-      help='If specified, restore this pretrained model before any training.')
+    '--wanted_words',
+    type=str,
+    default='yes,no,up,down,left,right,on,off,stop,go',
+    help='Words to use (others will be added to an unknown label)', )
   parser.add_argument(
-      '--model_architecture',
-      type=str,
-      default='conv',
-      help='What model architecture to use')
+    '--train_dir',
+    type=str,
+    default='/tmp/speech_commands_train',
+    help='Directory to write event logs and checkpoint.')
   parser.add_argument(
-      '--check_nans',
-      type=bool,
-      default=False,
-      help='Whether to check for invalid numbers during processing')
+    '--start_checkpoint',
+    type=str,
+    default='',
+    help='If specified, restore this pretrained model before any training.')
   parser.add_argument(
-      '--stretch',
-      type=float,
-      default=0.4,
-      help='time stretch of input wav, eg: if stretch=0.4, then the stretched wav length will be 60%~140% of the original one')
-
+    '--model_architecture',
+    type=str,
+    default='conv',
+    help='What model architecture to use')
+  parser.add_argument(
+    '--check_nans',
+    type=bool,
+    default=False,
+    help='Whether to check for invalid numbers during processing')
+  parser.add_argument(
+    '--stretch',
+    type=float,
+    default=0.4,
+    help='Time stretch of input wav, eg: if stretch=0.4, then the stretched wav length will be 60%~140% of the original one')
   FLAGS, unparsed = parser.parse_known_args()
+  print("FLAGS:", FLAGS)
   tf.app.run(main=main, argv=[sys.argv[0]] + unparsed)
