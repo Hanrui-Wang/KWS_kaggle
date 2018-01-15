@@ -156,10 +156,12 @@ def main(_):
   tf.summary.scalar('cross_entropy', cross_entropy_mean)
   update_extra_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
   apply_weight_noise_ops = []
-  for var in tf.get_collection(tf.GraphKeys.WEIGHTS):
-    apply_weight_noise_ops.append(tf.assign(var, var + tf.truncated_normal(
-      var.shape, mean=0.0, stddev=weight_noise_stddev_input, dtype=tf.float32)))
-  print(tf.get_collection(tf.GraphKeys.WEIGHTS))
+  for var in tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES):
+    if 'kernel' in var.name:
+      apply_weight_noise_ops.append(tf.assign(var, var + tf.truncated_normal(
+        var.shape, mean=0.0, stddev=weight_noise_stddev_input,
+        dtype=tf.float32)))
+  print(apply_weight_noise_ops)
   with tf.name_scope('train'), tf.control_dependencies(control_dependencies), \
        tf.control_dependencies(update_extra_ops):
     learning_rate_input = tf.placeholder(
@@ -210,9 +212,14 @@ def main(_):
   
   # Training loop.
   best_accuracy = 0
+  best_checkpoint = None
   training_steps_max = np.sum(training_steps_list)
   for training_step in xrange(start_step, training_steps_max + 1):
     # Figure out what the current learning rate is.
+    if best_checkpoint and FLAGS.restore_steps and \
+        (training_step - start_step) % FLAGS.restore_steps == 0:
+      tf.logging.info("Restore from the best model:", best_checkpoint)
+      models.load_variables_from_checkpoint(sess, best_checkpoint)
     training_steps_sum = 0
     for i in range(len(training_steps_list)):
       training_steps_sum += training_steps_list[i]
@@ -284,6 +291,7 @@ def main(_):
         checkpoint_path = os.path.join(FLAGS.train_dir, 'best',
                                        FLAGS.model_architecture + '_' + str(
                                          int(best_accuracy * 10000)) + '.ckpt')
+        best_checkpoint = checkpoint_path + '-' + str(training_step)
         tf.logging.info('Saving best model to "%s-%d"', checkpoint_path,
                         training_step)
         saver.save(sess, checkpoint_path, global_step=training_step)
@@ -472,6 +480,12 @@ if __name__ == '__main__':
     type=bool,
     default=True,
     help='Whether use mfcc or spectrum as input feature')
+  parser.add_argument(
+    '--restore_steps',
+    type=int,
+    default=1000,
+    help='Epoch period to restore parameters from the best model'
+  )
   FLAGS, unparsed = parser.parse_known_args()
   print("FLAGS:", FLAGS)
   tf.app.run(main=main, argv=[sys.argv[0]] + unparsed)
