@@ -5,8 +5,10 @@ python2 train.py \
 --train_dir='./model/ml-bigru-aug-noise' \
 --model_architecture='bigru' \
 --batch_size=100 \
---learning_rate='0.0005,0.00001,0.000001' \
---how_many_training_steps='1500,3000,8000' \
+--learning_rate_start=0.0005 \
+--learning_rate_decay=0.5 \
+--epochs=20000 \
+--restore_step_interval=800 \
 --stretch=0.3 \
 --time_shift_ms=150 \
 --background_frequency=0.9 \
@@ -15,5 +17,6 @@ python2 train.py \
 --dct_coefficient_count=40 \
 --window_size_ms=25 \
 --window_stride_ms=10 \
---weight_noise_stddev='0.001,0.0001' \
---how_many_noisy_steps='1500,2000' \
+--weight_noise_stddev_start=0.001 \
+--weight_noise_stddev_decay=0.2 \
+--eval_step_interval=100 \

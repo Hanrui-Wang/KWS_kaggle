@@ -108,24 +108,6 @@ def main(_):
   fingerprint_size = model_settings['fingerprint_size']
   label_count = model_settings['label_count']
   time_shift_samples = int((FLAGS.time_shift_ms * FLAGS.sample_rate) / 1000)
-  # Figure out the learning rates for each training phase. Since it's often
-  # effective to have high learning rates at the start of training, followed by
-  # lower levels towards the end, the number of steps and learning rates can be
-  # specified as comma-separated lists to define the rate at each stage. For
-  # example --how_many_training_steps=10000,3000 --learning_rate=0.001,0.0001
-  # will run 13,000 training loops in total, with a rate of 0.001 for the first
-  # 10,000, and 0.0001 for the final 3,000.
-  training_steps_list = list(map(int, FLAGS.how_many_training_steps.split(',')))
-  learning_rates_list = list(map(float, FLAGS.learning_rate.split(',')))
-  if len(training_steps_list) != len(learning_rates_list):
-    raise Exception(
-      '--how_many_training_steps and --learning_rate must be equal length '
-      'lists, but are %d and %d long instead' % (len(training_steps_list),
-                                                 len(learning_rates_list)))
-  weight_noise_stddevs_list = list(
-    map(float, FLAGS.weight_noise_stddev.split(',')))
-  weight_noise_steps_list = list(
-    map(int, FLAGS.how_many_noisy_steps.split(',')))
   
   fingerprint_input = tf.placeholder(
     tf.float32, [None, fingerprint_size], name='fingerprint_input')
@@ -213,27 +195,18 @@ def main(_):
   # Training loop.
   best_accuracy = 0
   best_checkpoint = None
-  training_steps_max = np.sum(training_steps_list)
+  training_steps_max = FLAGS.epochs
+  learning_rate_value = FLAGS.learning_rate_start
+  weight_noise_stddev = FLAGS.weight_noise_stddev_start
   for training_step in xrange(start_step, training_steps_max + 1):
     # Figure out what the current learning rate is.
-    if best_checkpoint and FLAGS.restore_steps and \
-        (training_step - start_step) % FLAGS.restore_steps == 0:
-      tf.logging.info("Restore from the best model:", best_checkpoint)
+    if best_checkpoint and FLAGS.restore_step_interval and \
+        (training_step - start_step) % FLAGS.restore_step_interval == 0:
+      tf.logging.info("Restore from the best model: %s", best_checkpoint)
+      learning_rate_value *= FLAGS.learning_rate_decay
+      weight_noise_stddev *= FLAGS.weight_noise_stddev_decay
       models.load_variables_from_checkpoint(sess, best_checkpoint)
-    training_steps_sum = 0
-    for i in range(len(training_steps_list)):
-      training_steps_sum += training_steps_list[i]
-      if training_step <= training_steps_sum:
-        learning_rate_value = learning_rates_list[i]
-        break
-    
-    weight_noise_steps_sum = 0
-    weight_noise_stddev = 0.0
-    for i in range(len(training_steps_list)):
-      weight_noise_steps_sum += weight_noise_steps_list[i]
-      if training_step <= weight_noise_steps_sum:
-        weight_noise_stddev = weight_noise_stddevs_list[i]
-        break
+
     # Pull the audio samples we'll use for training.
     train_fingerprints, train_ground_truth = audio_processor.get_data(
       FLAGS.batch_size, 0, model_settings, FLAGS.background_frequency,
@@ -361,6 +334,11 @@ if __name__ == '__main__':
       How much of the training data should be silence.
       """)
   parser.add_argument(
+    '--eval_step_interval',
+    type=int,
+    default=100,
+    help='How often to evaluate the training results.')
+  parser.add_argument(
     '--unknown_percentage',
     type=float,
     default=10.0,
@@ -410,36 +388,45 @@ if __name__ == '__main__':
     default=40,
     help='How many bins to use for the MFCC fingerprint', )
   parser.add_argument(
-    '--how_many_training_steps',
-    type=str,
-    default='2000,3000,10000',
-    help='How many training loops to run', )
-  parser.add_argument(
-    '--eval_step_interval',
+    '--epochs',
     type=int,
-    default=200,
-    help='How often to evaluate the training results.')
+    default=20000,
+    help='How many epochs to train the model.'
+  )
   parser.add_argument(
-    '--learning_rate',
-    type=str,
-    default='0.0001,0.00005,0.000001',
-    help='How large a learning rate to use when training.')
+    '--restore_step_interval',
+    type=int,
+    default=800,
+    help='Epoch period to restore parameters from the best model'
+  )
   parser.add_argument(
-    '--how_many_noisy_steps',
-    type=str,
-    default='1000,1000,5000',
-    help='How many training loops to run', )
+    '--weight_noise_stddev_start',
+    type=float,
+    default=0.001,
+    help='The starting weight noise stddev')
   parser.add_argument(
-    '--weight_noise_stddev',
-    type=str,
-    default='0.1,0.01,0.001',
-    help='Noise to apply after each gradient descent step'
+    '--weight_noise_stddev_decay',
+    type=float,
+    default=0.1,
+    help='The decay of weight noise stddev'
+  )
+  parser.add_argument(
+    '--learning_rate_start',
+    type=float,
+    default=0.0005,
+    help='The starting learning rate.'
+  )
+  parser.add_argument(
+    '--learning_rate_decay',
+    type=float,
+    default=0.5,
+    help='The decay of learning rate after each restoring operation'
   )
   parser.add_argument(
     '--batch_size',
     type=int,
     default=256,
-    help='How many items to train with at once', )
+    help='How many items to train with at once.')
   parser.add_argument(
     '--summaries_dir',
     type=str,
@@ -480,12 +467,7 @@ if __name__ == '__main__':
     type=bool,
     default=True,
     help='Whether use mfcc or spectrum as input feature')
-  parser.add_argument(
-    '--restore_steps',
-    type=int,
-    default=1000,
-    help='Epoch period to restore parameters from the best model'
-  )
   FLAGS, unparsed = parser.parse_known_args()
+  print("UNPARSED:", unparsed)
   print("FLAGS:", FLAGS)
   tf.app.run(main=main, argv=[sys.argv[0]] + unparsed)
