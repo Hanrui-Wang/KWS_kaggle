@@ -464,7 +464,8 @@ def create_multilayer_lstm(fingerprint_input, model_settings, is_training):
   cell = tf.nn.rnn_cell.MultiRNNCell([
     tf.nn.rnn_cell.LSTMCell(
       num_units=512,
-      initializer=initializer
+      initializer=initializer,
+      use_peepholes=True
     )
     for _ in range(2)
   ])
@@ -474,7 +475,7 @@ def create_multilayer_lstm(fingerprint_input, model_settings, is_training):
     cell=cell
   )
 
-  hidden = tf.concat(final_state[1], axis=1)
+  hidden = tf.concat(final_state[-1], axis=1)
 
   final_fc = tf.layers.dense(
     inputs=hidden,
@@ -553,79 +554,6 @@ def create_bigru(fingerprint_input, model_settings, is_training):
   return final_fc
 
 
-class LayerNormGRUCell(rnn_cell_impl.RNNCell):
-  def __init__(self, num_units, forget_bias=1.0,
-               input_size=None, activation=math_ops.tanh,
-               layer_norm=True, norm_gain=1.0, norm_shift=0.0,
-               dropout_keep_prob=1.0, dropout_prob_seed=None,
-               reuse=None):
-
-    super(LayerNormGRUCell, self).__init__(_reuse=reuse)
-
-    if input_size is not None:
-      tf.logging.info("%s: The input_size parameter is deprecated.", self)
-
-    self._num_units = num_units
-    self._activation = activation
-    self._forget_bias = forget_bias
-    self._keep_prob = dropout_keep_prob
-    self._seed = dropout_prob_seed
-    self._layer_norm = layer_norm
-    self._g = norm_gain
-    self._b = norm_shift
-    self._reuse = reuse
-
-  @property
-  def state_size(self):
-    return self._num_units
-
-  @property
-  def output_size(self):
-    return self._num_units
-
-  def _norm(self, inp, scope):
-    shape = inp.get_shape()[-1:]
-    gamma_init = init_ops.constant_initializer(self._g)
-    beta_init = init_ops.constant_initializer(self._b)
-    with vs.variable_scope(scope):
-      # Initialize beta and gamma for use by layer_norm.
-      vs.get_variable("gamma", shape=shape, initializer=gamma_init)
-      vs.get_variable("beta", shape=shape, initializer=beta_init)
-    normalized = layers.layer_norm(inp, reuse=True, scope=scope)
-    return normalized
-
-  def _linear(self, args, copy):
-    out_size = copy * self._num_units
-    proj_size = args.get_shape()[-1]
-    weights = vs.get_variable("kernel", [proj_size, out_size])
-    out = math_ops.matmul(args, weights)
-    if not self._layer_norm:
-      bias = vs.get_variable("bias", [out_size])
-      out = nn_ops.bias_add(out, bias)
-    return out
-
-  def call(self, inputs, state):
-    """LSTM cell with layer normalization and recurrent dropout."""
-    with vs.variable_scope("gates"):
-      h = state
-      args = array_ops.concat([inputs, h], 1)
-      concat = self._linear(args, 2)
-
-      z, r = array_ops.split(value=concat, num_or_size_splits=2, axis=1)
-      if self._layer_norm:
-        z = self._norm(z, "update")
-        r = self._norm(r, "reset")
-
-    with vs.variable_scope("candidate"):
-      args = array_ops.concat([inputs, math_ops.sigmoid(r) * h], 1)
-      new_c = self._linear(args, 1)
-      if self._layer_norm:
-        new_c = self._norm(new_c, "state")
-    new_h = self._activation(new_c) * math_ops.sigmoid(z) + \
-            (1 - math_ops.sigmoid(z)) * h
-    return new_h, new_h
-
-
 def create_crnn_model(fingerprint_input, model_settings, is_training):
   """Builds a model with convolutional recurrent networks with GRUs
   Based on the model definition in https://arxiv.org/abs/1703.05390
@@ -641,15 +569,14 @@ def create_crnn_model(fingerprint_input, model_settings, is_training):
                               [-1, input_time_size, input_frequency_size, 1])
   initializer = tf.truncated_normal_initializer(stddev=0.01)
 
-  layer_norm = False
   bidirectional = False
 
   hidden = fingerprint_4d
   hidden = tf.layers.conv2d(
     inputs=hidden,
     kernel_size=(10, 10),
-    filters=64,
-    strides=(2, 2),
+    filters=128,
+    strides=1,
     padding='VALID',
     kernel_initializer=initializer
   )
@@ -658,15 +585,15 @@ def create_crnn_model(fingerprint_input, model_settings, is_training):
   hidden = tf.layers.conv2d(
     inputs=hidden,
     kernel_size=(10, 10),
-    filters=64,
-    strides=(2, 2),
+    filters=128,
+    strides=1,
     padding='VALID',
     kernel_initializer=initializer
   )
 
   hidden = tf.layers.max_pooling2d(
     hidden,
-    pool_size=2,
+    pool_size=3,
     strides=2
   )
   hidden = tf.nn.relu(hidden)
@@ -679,16 +606,10 @@ def create_crnn_model(fingerprint_input, model_settings, is_training):
                              hidden.shape[2] * hidden.shape[3]])
   cell_fw = []
   cell_bw = []
-  if layer_norm:
-    for i in range(num_rnn_layers):
-      cell_fw.append(LayerNormGRUCell(RNN_units))
-      if bidirectional:
-        cell_bw.append(LayerNormGRUCell(RNN_units))
-  else:
-    for i in range(num_rnn_layers):
-      cell_fw.append(tf.contrib.rnn.GRUCell(RNN_units))
-      if bidirectional:
-        cell_bw.append(tf.contrib.rnn.GRUCell(RNN_units))
+  for i in range(num_rnn_layers):
+    cell_fw.append(tf.contrib.rnn.GRUCell(RNN_units))
+    if bidirectional:
+      cell_bw.append(tf.contrib.rnn.GRUCell(RNN_units))
 
   if bidirectional:
     outputs, output_state_fw, output_state_bw = \
@@ -702,12 +623,12 @@ def create_crnn_model(fingerprint_input, model_settings, is_training):
 
   first_fc = tf.layers.dense(
     inputs=flow,
-    units=128,
+    units=1024,
     kernel_initializer=initializer,
   )
   first_fc = tf.nn.relu(first_fc)
   final_fc_input = tf.layers.dropout(first_fc,
-                                     rate=0.3, training=is_training)
+                                     rate=0.2, training=is_training)
 
   label_count = model_settings['label_count']
 
