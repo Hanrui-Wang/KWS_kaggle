@@ -36,6 +36,7 @@ from tensorflow.contrib.framework.python.ops import audio_ops as contrib_audio
 from tensorflow.python.ops import io_ops
 from tensorflow.python.platform import gfile
 from tensorflow.python.util import compat
+from tensorflow.contrib.signal import linear_to_mel_weight_matrix as lin_to_mel
 
 MAX_NUM_WAVS_PER_CLASS = 2**27 - 1  # ~134M
 SILENCE_LABEL = '_silence_'
@@ -407,10 +408,23 @@ class AudioProcessor(object):
         window_size=model_settings['window_size_samples'],
         stride=model_settings['window_stride_samples'],
         magnitude_squared=True)
-    self.mfcc_ = contrib_audio.mfcc(
+    if model_settings['is_use_mfcc'] == True:
+      self.mfcc_ = contrib_audio.mfcc(
         spectrogram,
         wav_decoder.sample_rate,
         dct_coefficient_count=model_settings['dct_coefficient_count'])
+      # self.mfcc_ = tf.tensordot(self.mfcc_, tf.eye(40), 1)
+    else:
+      mel_matrix = lin_to_mel(
+        num_mel_bins=model_settings['dct_coefficient_count'],
+        num_spectrogram_bins=int((pow(2,np.ceil(np.log2(model_settings['window_size_samples'])))/2+1)),
+        sample_rate=16000,
+        lower_edge_hertz=0,
+        upper_edge_hertz=9000,
+        dtype=tf.float32,
+        name=None)
+      self.mfcc_ = tf.tensordot(spectrogram, mel_matrix, 1) 
+      self.mfcc_ = tf.log(self.mfcc_+ tf.constant(1e-20, shape=[model_settings['spectrogram_length'], model_settings['dct_coefficient_count']]))
 
   def set_size(self, mode):
     """Calculates the number of samples in the dataset partition.
