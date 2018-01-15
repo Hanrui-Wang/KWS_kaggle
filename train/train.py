@@ -98,7 +98,7 @@ def main(_):
   model_settings = models.prepare_model_settings(
       len(input_data.prepare_words_list(FLAGS.wanted_words.split(','))),
       FLAGS.sample_rate, FLAGS.clip_duration_ms, FLAGS.window_size_ms,
-      FLAGS.window_stride_ms, FLAGS.dct_coefficient_count, FLAGS.stretch)
+      FLAGS.window_stride_ms, FLAGS.dct_coefficient_count, FLAGS.stretch, FLAGS.is_use_mfcc)
   audio_processor = input_data.AudioProcessor(
       FLAGS.data_url, FLAGS.data_dir, FLAGS.silence_percentage,
       FLAGS.unknown_percentage,
@@ -431,6 +431,11 @@ if __name__ == '__main__':
       type=float,
       default=0.4,
       help='time stretch of input wav, eg: if stretch=0.4, then the stretched wav length will be 60%~140% of the original one')
+  parser.add_argument(
+      '--is_use_mfcc',
+      type=bool,
+      default=True,
+      help='Whether use mfcc or spectrum as input feature')
 
   FLAGS, unparsed = parser.parse_known_args()
   tf.app.run(main=main, argv=[sys.argv[0]] + unparsed)

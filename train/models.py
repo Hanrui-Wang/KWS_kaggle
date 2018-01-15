@@ -20,13 +20,14 @@ from __future__ import division
 from __future__ import print_function
 
 import math
+import numpy as np
 
 import tensorflow as tf
 
 
 def prepare_model_settings(label_count, sample_rate, clip_duration_ms,
                            window_size_ms, window_stride_ms,
-                           dct_coefficient_count, stretch):
+                           dct_coefficient_count, stretch, is_use_mfcc):
   """Calculates common settings needed for all models.
 
   Args:
@@ -48,7 +49,12 @@ def prepare_model_settings(label_count, sample_rate, clip_duration_ms,
     spectrogram_length = 0
   else:
     spectrogram_length = 1 + int(length_minus_window / window_stride_samples)
-  fingerprint_size = dct_coefficient_count * spectrogram_length
+  if is_use_mfcc == True:
+    fingerprint_size = dct_coefficient_count * spectrogram_length
+  else:
+    fingerprint_size = dct_coefficient_count * spectrogram_length
+    # fingerprint_size = int((pow(2,np.ceil(np.log2(window_size_samples)))/2+1) * spectrogram_length)
+    # dct_coefficient_count = int((pow(2,np.ceil(np.log2(window_size_samples)))/2+1))
   return {
       'desired_samples': desired_samples,
       'window_size_samples': window_size_samples,
@@ -59,6 +65,7 @@ def prepare_model_settings(label_count, sample_rate, clip_duration_ms,
       'label_count': label_count,
       'sample_rate': sample_rate,
       'stretch': stretch,
+      'is_use_mfcc': is_use_mfcc,
   }
 
 
