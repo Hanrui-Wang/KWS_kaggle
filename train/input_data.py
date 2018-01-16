@@ -257,7 +257,7 @@ class AudioProcessor(object):
         unknown_index[set_index].append({'label': word, 'file': wav_path})
 
     ## pseudo-labeling
-    TBset_path = '/home/hanrui/Desktop/kaggle/data/test/audio/'
+    TBset_path = '../../test/audio/'
     fid = open('plabel.txt', 'r')
     plabel = fid.read().split('\n')
     fid.close()
