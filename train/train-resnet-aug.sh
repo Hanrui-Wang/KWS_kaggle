@@ -3,7 +3,7 @@ python2 train.py \
 --data_dir='./dataset' \
 --summaries_dir='./summary/resnet' \
 --train_dir='./model/resnet' \
---model_architecture='bigru' \
+--model_architecture='resnet' \
 --batch_size=100 \
 --learning_rate_start=0.0005 \
 --learning_rate_decay=0.5 \
