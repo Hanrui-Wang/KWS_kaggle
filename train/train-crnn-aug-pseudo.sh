@@ -1,8 +1,8 @@
 python2 train.py \
 --data_url='' \
 --data_dir='./dataset' \
---summaries_dir='./summary/crnn-aug-noise' \
---train_dir='./model/crnn-aug-noise' \
+--summaries_dir='./summary/crnn-aug-noise-pseudo' \
+--train_dir='./model/crnn-aug-noise-pseudo' \
 --model_architecture='crnn' \
 --batch_size=100 \
 --learning_rate_start=0.0005 \
@@ -19,6 +19,6 @@ python2 train.py \
 --window_stride_ms=10 \
 --weight_noise_stddev_start=0.000 \
 --weight_noise_stddev_decay=0.2 \
---eval_step_interval=100  \
+--eval_step_interval=100 \
 --testing_percentage=0 \
 --validation_percentage=20 \

@@ -21,3 +21,5 @@ python2 train.py \
 --weight_noise_stddev_decay=0.2 \
 --eval_step_interval=100 \
 --is_use_mfcc='' \
+--testing_percentage=0 \
+--validation_percentage=20 \

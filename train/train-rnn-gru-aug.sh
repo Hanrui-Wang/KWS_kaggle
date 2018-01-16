@@ -19,4 +19,6 @@ python2 train.py \
 --window_stride_ms=10 \
 --weight_noise_stddev_start=0.001 \
 --weight_noise_stddev_decay=0.2 \
---eval_step_interval=100 \
+--eval_step_interval=100  \
+--testing_percentage=0 \
+--validation_percentage=20 \
