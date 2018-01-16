@@ -255,6 +255,33 @@ class AudioProcessor(object):
         self.data_index[set_index].append({'label': word, 'file': wav_path})
       else:
         unknown_index[set_index].append({'label': word, 'file': wav_path})
+
+    ## pseudo-labeling
+    TBset_path = '/home/hanrui/Desktop/kaggle/data/test/audio/'
+    fid = open('plabel.txt', 'r')
+    plabel = fid.read().split('\n')
+    fid.close()
+    kk = len(plabel)
+
+    for ii in range(0, kk-5000):
+      tmp = plabel[ii].split(',')
+      if ((tmp[1] == '_silence_')):
+        continue
+      if ((tmp[1] == '_unknown_')):
+        unknown_index['training'].append({'label': 'marvin', 'file': TBset_path+tmp[0]})
+      else:
+        self.data_index['training'].append({'label': tmp[1], 'file': TBset_path+tmp[0]})
+
+    for ii in range(kk-5000, kk):
+      tmp = plabel[ii].split(',')
+      if ((tmp[1] == '_silence_')):
+        continue
+      if ((tmp[1] == '_unknown_')):
+        unknown_index['validation'].append({'label': 'marvin', 'file': TBset_path+tmp[0]})
+      else:
+        self.data_index['validation'].append({'label': tmp[1], 'file': TBset_path+tmp[0]})
+
+
     if not all_words:
       raise Exception('No .wavs found at ' + search_path)
     for index, wanted_word in enumerate(wanted_words):
@@ -290,7 +317,7 @@ class AudioProcessor(object):
         self.word_to_index[word] = UNKNOWN_WORD_INDEX
     self.word_to_index[SILENCE_LABEL] = SILENCE_INDEX
 
-  
+
   def prepare_LB_test(self, LB_test_set_path):
     fid_r = open('LB_test_filename.txt')
     LB_test_filename = fid_r.read().split('\n')
