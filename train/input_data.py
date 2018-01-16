@@ -263,7 +263,7 @@ class AudioProcessor(object):
     fid.close()
     kk = len(plabel)
 
-    for ii in range(0, kk-5000):
+    for ii in range(0, kk):
       tmp = plabel[ii].split(',')
       if ((tmp[1] == '_silence_')):
         continue
@@ -272,7 +272,7 @@ class AudioProcessor(object):
       else:
         self.data_index['training'].append({'label': tmp[1], 'file': TBset_path+tmp[0]})
 
-    for ii in range(kk-5000, kk):
+    for ii in range(kk, kk):
       tmp = plabel[ii].split(',')
       if ((tmp[1] == '_silence_')):
         continue

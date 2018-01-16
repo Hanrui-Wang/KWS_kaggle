@@ -10,6 +10,7 @@ from six.moves import xrange  # pylint: disable=redefined-builtin
 
 import input_data
 import models
+import numpy
 
 FLAGS = None
 
@@ -27,7 +28,7 @@ def main(_):
   model_settings = models.prepare_model_settings(
     len(input_data.prepare_words_list(FLAGS.wanted_words.split(','))),
     FLAGS.sample_rate, FLAGS.clip_duration_ms, FLAGS.window_size_ms,
-    FLAGS.window_stride_ms, FLAGS.dct_coefficient_count, 0)
+    FLAGS.window_stride_ms, FLAGS.dct_coefficient_count, 0, FLAGS.is_use_mfcc)
   audio_processor = input_data.AudioProcessor(
     FLAGS.data_url, FLAGS.data_dir, FLAGS.silence_percentage,
     FLAGS.unknown_percentage,
@@ -131,6 +132,7 @@ def main(_):
       fid_s.write("%s\n" % ' '.join(map(str, scores[j])))
       # print(prediction[j])
   fid_w.close()
+  fid_s.close()
   
   # write submission csv file
   fid_filename = open('LB_test_filename.txt', 'r')
@@ -142,15 +144,21 @@ def main(_):
   fid_filename.close()
   fid_prediction.close()
   
-  fid_w = open(FLAGS.submission_file_name, 'w')
+  fid_w = open('submission-' + FLAGS.model_architecture + '.csv', 'w')
   
   fid_w.write("fname,label\n")
   k = len(filename)
   for i in range(0, k):
     fid_w.write("%s,%s\n" % (filename[i], prediction[i]))
   fid_w.close()
-  fid_s.close()
 
+  fid_w = open('ensemble-' + FLAGS.model_architecture + '.csv', 'w')
+  k = len(filename)
+  proba = (numpy.exp(scores).T / numpy.sum(numpy.exp(scores), axis=1)).T
+  for i in range(k):
+  	result = map(lambda x: '%.10f' % x, proba[i])
+  	fid_w.write("%s,%s\n" % (filename[i], ','.join(result)))
+  fid_w.close()
 
 if __name__ == '__main__':
   parser = argparse.ArgumentParser()
@@ -304,10 +312,11 @@ if __name__ == '__main__':
     default=200,
     help='Leaderboard test set batch size')
   parser.add_argument(
-    '--submission_file_name',
-    type=str,
-    default='submission00.csv',
-    help='Leaderboard submission file name')
+    '--is_use_mfcc',
+    type=bool,
+    default=True,
+    help='Whether MFCC is used'
+  )
   
   FLAGS, unparsed = parser.parse_known_args()
   tf.app.run(main=main, argv=[sys.argv[0]] + unparsed)
