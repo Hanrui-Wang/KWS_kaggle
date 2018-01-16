@@ -1,8 +1,8 @@
 python2 train.py \
 --data_url='' \
 --data_dir='./dataset' \
---summaries_dir='./summary/resnet' \
---train_dir='./model/resnet' \
+--summaries_dir='./summary/resnet-no-mfcc' \
+--train_dir='./model/resnet-no-mfcc' \
 --model_architecture='bigru' \
 --batch_size=100 \
 --learning_rate_start=0.0005 \
@@ -20,3 +20,4 @@ python2 train.py \
 --weight_noise_stddev_start=0.001 \
 --weight_noise_stddev_decay=0.2 \
 --eval_step_interval=100 \
+--is_use_mfcc=''
