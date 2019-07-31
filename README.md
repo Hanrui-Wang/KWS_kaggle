@@ -3,7 +3,6 @@ Kaggle TensorFlow Speech Recognition Challenge
 
 ## Dataset
 + Training set with labels: http://download.tensorflow.org/data/speech_commands_v0.01.tar.gz
-+ Leaderboard test set without labels: https://pan.baidu.com/s/1o8Yw9To
 
 ## Tutorial
 + https://www.tensorflow.org/versions/master/tutorials/audio_recognition
